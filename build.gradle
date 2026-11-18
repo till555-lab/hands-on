@@ -11,9 +11,9 @@ buildscript {
 apply plugin: 'net.minecraftforge.gradle'
 apply plugin: 'eclipse'
 
-version = '0.3.0-alpha'
-group = 'com.femboycompanion'
-archivesBaseName = 'femboycompanion'
+version = '0.1.0-alpha'
+group = 'com.handson'
+archivesBaseName = 'handson'
 
 java.toolchain.languageVersion = JavaLanguageVersion.of(8)
 
@@ -26,7 +26,7 @@ minecraft {
             property 'forge.logging.markers', 'REGISTRIES'
             property 'forge.logging.console.level', 'debug'
             mods {
-                femboycompanion {
+                handson {
                     source sourceSets.main
                 }
             }
@@ -36,24 +36,19 @@ minecraft {
 
 sourceSets.main.resources { srcDir 'src/generated/resources' }
 
-repositories {
-    maven { url 'https://dl.cloudsmith.io/public/geckolib3/geckolib/maven/' }
-}
-
 dependencies {
     minecraft 'net.minecraftforge:forge:1.16.5-36.2.42'
-    implementation fg.deobf('software.bernie.geckolib:geckolib-forge-1.16.5:3.0.106')
 }
 
 jar {
     manifest {
         attributes([
-            "Specification-Title": "femboycompanion",
-            "Specification-Vendor": "femboycompanion",
+            "Specification-Title": "handson",
+            "Specification-Vendor": "handson",
             "Specification-Version": "1",
             "Implementation-Title": project.name,
             "Implementation-Version": project.jar.archiveVersion,
-            "Implementation-Vendor": "femboycompanion"
+            "Implementation-Vendor": "handson"
         ])
     }
 }

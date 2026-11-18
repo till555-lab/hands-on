@@ -1,0 +1,11 @@
+{
+  "key.categories.handson": "Hands On",
+  "key.handson.left_hand": "Ліва рука",
+  "key.handson.right_hand": "Права рука",
+  "key.handson.lock": "Замок хвату",
+  "key.handson.toggle": "Перемкнути керування Hands On / ванільне",
+  "message.handson.mode_on": "Керування Hands On: УВІМК.",
+  "message.handson.mode_off": "Ванільне керування",
+  "hud.handson.locked": "Хват замкнено",
+  "hud.handson.unlocked": "Хват відкрито"
+}
