@@ -22,8 +22,8 @@ import net.minecraft.util.Hand;
 import net.minecraft.util.HandSide;
 import net.minecraft.util.math.AxisAlignedBB;
 import net.minecraft.util.math.MathHelper;
+import net.minecraft.util.math.RayTraceResult;
 import net.minecraft.util.math.vector.Vector3d;
-import net.minecraft.util.math.vector.Vector3f;
 import net.minecraft.util.text.TranslationTextComponent;
 import net.minecraftforge.client.event.InputEvent;
 import net.minecraftforge.client.event.RenderGameOverlayEvent;
@@ -36,14 +36,13 @@ public class ClientEvents {
     private static final float SPEED = 0.34F;
     private static final double REACH = 4.0D;
 
-    // Hand pose (view space: +x right, +y up, -z forward)
-    private static final double SHOULDER_X = 0.45D;
-    private static final double SHOULDER_Y = -0.60D;
-    private static final double SHOULDER_Z = -0.45D;
-    private static final double ARM_LEN = 0.625D;     // length of the arm model (10 px)
-    private static final double STRETCH = 1.2D;       // extra length factor at full extension
-    private static final double ITEM_UP = 0.05D;      // item offset from the hand tip
-    private static final double ITEM_FWD = -0.10D;
+    // hand pose tuning
+    private static final double REACH_FWD = 0.30D;    // how far the hand moves forward when extended
+    private static final double STRETCH = 0.5D;       // extra arm length at full extension (0.5 = +50%)
+    private static final double SPREAD_DEG = 25.0D;   // hands swing apart when there is no target
+    private static final double LAG_SCALE = 0.5D;     // how much the hands lag behind head turns
+    private static final double ITEM_UP = 0.02D;      // item offset from the arm tip
+    private static final double ITEM_FWD = -0.08D;
 
     private boolean toggleWas = false;
     private boolean lockWas = false;
@@ -83,10 +82,24 @@ public class ClientEvents {
             drain(o.keyDrop);
             drain(o.keySwapOffhand);
             drain(o.keyAdvancements);
-            // no third person: F5 always returns to the first-person view
-            if (o.getCameraType() != PointOfView.FIRST_PERSON) {
+            // F5 cycles only first person <-> third person from behind (the front view is skipped)
+            if (o.getCameraType() == PointOfView.THIRD_PERSON_FRONT) {
                 o.setCameraType(PointOfView.FIRST_PERSON);
             }
+        }
+
+        // smoothed head rotation for the hand lag
+        if (!HandsState.smoothInit) {
+            HandsState.smoothYaw = mc.player.yRot;
+            HandsState.smoothPitch = mc.player.xRot;
+            HandsState.prevSmoothYaw = HandsState.smoothYaw;
+            HandsState.prevSmoothPitch = HandsState.smoothPitch;
+            HandsState.smoothInit = true;
+        } else {
+            HandsState.prevSmoothYaw = HandsState.smoothYaw;
+            HandsState.prevSmoothPitch = HandsState.smoothPitch;
+            HandsState.smoothYaw += MathHelper.wrapDegrees(mc.player.yRot - HandsState.smoothYaw) * 0.45F;
+            HandsState.smoothPitch += (mc.player.xRot - HandsState.smoothPitch) * 0.45F;
         }
 
         boolean lockNow = mc.screen == null && HandKeys.LOCK.isDown();
@@ -104,10 +117,19 @@ public class ClientEvents {
             HandsState.prevExt[h] = HandsState.ext[h];
             if (now) {
                 HandsState.ext[h] = Math.min(1.0F, HandsState.ext[h] + SPEED);
-                HandsState.target[h] = findTarget(mc);
+                ItemEntity t = findTarget(mc);
+                HandsState.target[h] = t;
+                if (t != null) {
+                    HandsState.aim[h] = t.position().add(0.0D, t.getBbHeight() / 2.0D, 0.0D);
+                } else {
+                    HandsState.aim[h] = blockAim(mc);
+                }
             } else {
                 HandsState.ext[h] = Math.max(0.0F, HandsState.ext[h] - SPEED);
                 HandsState.target[h] = null;
+                if (HandsState.ext[h] <= 0.0F) {
+                    HandsState.aim[h] = null;
+                }
             }
             if (was && !now) {
                 onRelease(mc, h, prevTarget);
@@ -140,6 +162,17 @@ public class ClientEvents {
         } else if (target != null && target.isAlive()) {
             HandsNet.CHANNEL.sendToServer(new HandsPacket(HandsPacket.GRAB, h, target.getId(), false));
         }
+    }
+
+    private static Vector3d blockAim(Minecraft mc) {
+        RayTraceResult hit = mc.hitResult;
+        if (hit != null && hit.getType() == RayTraceResult.Type.BLOCK) {
+            Vector3d loc = hit.getLocation();
+            if (loc.distanceToSqr(mc.player.getEyePosition(1.0F)) <= 36.0D) {
+                return loc;
+            }
+        }
+        return null;
     }
 
     private static ItemEntity findTarget(Minecraft mc) {
@@ -188,32 +221,116 @@ public class ClientEvents {
         }
         float pt = event.getPartialTicks();
         for (int h = 0; h < 2; h++) {
-            float ext = MathHelper.lerp(pt, HandsState.prevExt[h], HandsState.ext[h]);
-            drawHand(mc, player, event.getMatrixStack(), event.getBuffers(), event.getLight(),
-                    h == 1 ? HandSide.RIGHT : HandSide.LEFT, ext);
+            drawHand(mc, player, event.getMatrixStack(), event.getBuffers(), event.getLight(), h, pt);
         }
     }
 
+    private static void tr(MatrixStack ms, Pose p, double x, double y, double z) {
+        ms.translate(x, y, z);
+        p.translate(x, y, z);
+    }
+
+    private static void rx(MatrixStack ms, Pose p, double deg) {
+        ms.mulPose(net.minecraft.util.math.vector.Vector3f.XP.rotationDegrees((float) deg));
+        p.rotX(deg);
+    }
+
+    private static void ry(MatrixStack ms, Pose p, double deg) {
+        ms.mulPose(net.minecraft.util.math.vector.Vector3f.YP.rotationDegrees((float) deg));
+        p.rotY(deg);
+    }
+
+    private static void rz(MatrixStack ms, Pose p, double deg) {
+        ms.mulPose(net.minecraft.util.math.vector.Vector3f.ZP.rotationDegrees((float) deg));
+        p.rotZ(deg);
+    }
+
+    private static void sc(MatrixStack ms, Pose p, double x, double y, double z) {
+        ms.scale((float) x, (float) y, (float) z);
+        p.scale(x, y, z);
+    }
+
+    /** Angles (degrees) between the resting hand direction and the direction to the aim point, or null. */
+    private static double[] aimAngles(ClientPlayerEntity player, float pt, Vector3d aim, double f) {
+        Vector3d eye = player.getEyePosition(pt);
+        double yaw = Math.toRadians(player.getViewYRot(pt));
+        double pitch = Math.toRadians(player.getViewXRot(pt));
+        double dx = aim.x - eye.x;
+        double dy = aim.y - eye.y;
+        double dz = aim.z - eye.z;
+        // camera axes in world space
+        double fx = -Math.sin(yaw) * Math.cos(pitch);
+        double fy = -Math.sin(pitch);
+        double fz = Math.cos(yaw) * Math.cos(pitch);
+        double rxw = -Math.cos(yaw);
+        double rzw = -Math.sin(yaw);
+        double ux = -Math.sin(yaw) * Math.sin(pitch);
+        double uy = Math.cos(pitch);
+        double uz = Math.cos(yaw) * Math.sin(pitch);
+        // aim point in view space (+x right, +y up, -z forward)
+        double vx = dx * rxw + dz * rzw;
+        double vy = dx * ux + dy * uy + dz * uz;
+        double vz = -(dx * fx + dy * fy + dz * fz);
+        if (-vz < 0.2D) {
+            return null;
+        }
+        double az = Math.toDegrees(Math.atan2(vx, -vz));
+        double el = Math.toDegrees(Math.atan2(vy, -vz));
+        double hAz = Math.toDegrees(Math.atan2(f * 0.50D, 0.75D));
+        double hEl = Math.toDegrees(Math.atan2(-0.45D, 0.75D));
+        double dAz = MathHelper.clamp(az - hAz, -75.0D, 75.0D);
+        double dEl = MathHelper.clamp(el - hEl, -45.0D, 45.0D);
+        return new double[]{dAz, dEl};
+    }
+
     private static void drawHand(Minecraft mc, ClientPlayerEntity player, MatrixStack ms,
-                                 IRenderTypeBuffer buf, int light, HandSide side, float ext) {
-        boolean right = side == HandSide.RIGHT;
-        float f = right ? 1.0F : -1.0F;
+                                 IRenderTypeBuffer buf, int light, int h, float pt) {
+        boolean right = h == 1;
+        double f = right ? 1.0D : -1.0D;
+        float ext = MathHelper.lerp(pt, HandsState.prevExt[h], HandsState.ext[h]);
 
-        // shoulder position and arm direction
-        double px = f * (SHOULDER_X - 0.28D * ext);
-        double py = SHOULDER_Y + 0.30D * ext;
-        double pz = SHOULDER_Z - 0.55D * ext;
-        float yawDeg = f * -8.0F;
-        float pitchDeg = -68.0F - 12.0F * ext;
-        double stretch = 1.0D + STRETCH * ext;
+        // where the hand turns: towards the aim point, or apart to the side when there is none
+        double yawRot = 0.0D;
+        double pitchRot = 0.0D;
+        if (ext > 0.0F) {
+            double[] ang = HandsState.aim[h] != null ? aimAngles(player, pt, HandsState.aim[h], f) : null;
+            if (ang != null) {
+                yawRot = -ang[0] * ext;
+                pitchRot = ang[1] * ext;
+            } else {
+                yawRot = -f * SPREAD_DEG * ext;
+            }
+        }
+        // small lag when the head turns fast
+        if (HandsState.smoothInit) {
+            float sy = HandsState.prevSmoothYaw
+                    + MathHelper.wrapDegrees(HandsState.smoothYaw - HandsState.prevSmoothYaw) * pt;
+            float sp = MathHelper.lerp(pt, HandsState.prevSmoothPitch, HandsState.smoothPitch);
+            double lagYaw = MathHelper.clamp(MathHelper.wrapDegrees(player.getViewYRot(pt) - sy), -20.0F, 20.0F);
+            double lagPitch = MathHelper.clamp(player.getViewXRot(pt) - sp, -20.0F, 20.0F);
+            yawRot += lagYaw * LAG_SCALE;
+            pitchRot += lagPitch * LAG_SCALE;
+        }
 
-        // arm (placeholder: the player's own skin arm, pointing forward)
+        Pose pose = new Pose();
         ms.pushPose();
-        ms.translate(px, py, pz);
-        ms.mulPose(Vector3f.YP.rotationDegrees(yawDeg));
-        ms.mulPose(Vector3f.XP.rotationDegrees(pitchDeg));
-        ms.translate(f * 0.3125D, -0.125D, 0.0D); // cancel the pivot offset of the arm model
-        ms.scale(1.0F, (float) stretch, 1.0F);
+        ry(ms, pose, yawRot);
+        rx(ms, pose, pitchRot);
+        tr(ms, pose, 0.0D, 0.0D, -REACH_FWD * ext);
+
+        // resting pose of the arm (the same pose as in 0.1.0)
+        tr(ms, pose, f * 0.64D, -0.6D, -0.72D);
+        ry(ms, pose, f * 45.0D);
+        tr(ms, pose, f * -1.0D, 3.6D, 3.5D);
+        rz(ms, pose, f * 120.0D);
+        rx(ms, pose, 200.0D);
+        ry(ms, pose, f * -135.0D);
+        tr(ms, pose, f * 5.6D, 0.0D, 0.0D);
+        sc(ms, pose, 1.0D, 1.0D + STRETCH * ext, 1.0D);
+
+        // tip of the arm in the space the hand started in (centre of the end of the arm)
+        double[] tip = pose.apply(-f * 0.375D, 0.75D, 0.0D);
+
         PlayerRenderer renderer = (PlayerRenderer) mc.getEntityRenderDispatcher().getRenderer(player);
         if (right) {
             renderer.renderRightHand(ms, buf, light, player);
@@ -225,14 +342,8 @@ public class ClientEvents {
         // item sits at the tip of the arm and moves with it
         ItemStack stack = player.getItemInHand(right ? Hand.MAIN_HAND : Hand.OFF_HAND);
         if (!stack.isEmpty()) {
-            double th = Math.toRadians(pitchDeg);
-            double ph = Math.toRadians(yawDeg);
-            double len = ARM_LEN * stretch;
-            double tx = px + Math.sin(th) * Math.sin(ph) * len;
-            double ty = py + Math.cos(th) * len;
-            double tz = pz + Math.sin(th) * Math.cos(ph) * len;
             ms.pushPose();
-            ms.translate(tx, ty + ITEM_UP, tz + ITEM_FWD);
+            ms.translate(tip[0], tip[1] + ITEM_UP, tip[2] + ITEM_FWD);
             mc.getItemInHandRenderer().renderItem(player, stack,
                     right ? ItemCameraTransforms.TransformType.FIRST_PERSON_RIGHT_HAND
                           : ItemCameraTransforms.TransformType.FIRST_PERSON_LEFT_HAND,
@@ -324,18 +435,21 @@ public class ClientEvents {
                 locked ? "hud.handson.locked" : "hud.handson.unlocked").getString();
         mc.font.drawShadow(ms, lockText, x + 16, y + 3, 0xFFFFFF);
 
-        // what the hands hold: count and name, blue on the left, red on the right
+        // what the hands hold: item icon with count, the name below it (white)
         int w = mc.getWindow().getGuiScaledWidth();
         int hgt = mc.getWindow().getGuiScaledHeight();
-        ItemStack left = mc.player.getItemInHand(Hand.OFF_HAND);
-        ItemStack right = mc.player.getItemInHand(Hand.MAIN_HAND);
-        if (!left.isEmpty()) {
-            String t = left.getCount() + "x " + left.getHoverName().getString();
-            mc.font.drawShadow(ms, t, w / 2.0F - 98.0F - mc.font.width(t), hgt - 48.0F, 0x6699FF);
+        drawHeld(mc, ms, mc.player.getItemInHand(Hand.OFF_HAND), w / 2 - 118, hgt - 66);
+        drawHeld(mc, ms, mc.player.getItemInHand(Hand.MAIN_HAND), w / 2 + 102, hgt - 66);
+    }
+
+    private static void drawHeld(Minecraft mc, MatrixStack ms, ItemStack stack, int x, int y) {
+        if (stack.isEmpty()) {
+            return;
         }
-        if (!right.isEmpty()) {
-            String t = right.getCount() + "x " + right.getHoverName().getString();
-            mc.font.drawShadow(ms, t, w / 2.0F + 98.0F, hgt - 48.0F, 0xFF5555);
-        }
+        mc.getItemRenderer().renderAndDecorateItem(stack, x, y);
+        mc.getItemRenderer().renderGuiItemDecorations(mc.font, stack, x, y);
+        String name = stack.getHoverName().getString();
+        float tw = mc.font.width(name);
+        mc.font.drawShadow(ms, name, x + 8.0F - tw / 2.0F, y + 20.0F, 0xFFFFFF);
     }
 }
