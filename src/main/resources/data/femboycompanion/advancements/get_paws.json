@@ -1,0 +1,19 @@
+{
+  "parent": "femboycompanion:root",
+  "display": {
+    "icon": {"item": "femboycompanion:white_paws"},
+    "title": {"translate": "advancements.femboycompanion.get_paws.title"},
+    "description": {"translate": "advancements.femboycompanion.get_paws.desc"},
+    "frame": "task",
+    "show_toast": true,
+    "announce_to_chat": false,
+    "hidden": false
+  },
+  "criteria": {
+    "has_item": {
+      "trigger": "minecraft:inventory_changed",
+      "conditions": {"items": [{"items": ["femboycompanion:white_paws", "femboycompanion:black_paws"]}]}
+    }
+  },
+  "rewards": {"experience": 5}
+}

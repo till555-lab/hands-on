@@ -1,0 +1,19 @@
+{
+  "parent": "femboycompanion:root",
+  "display": {
+    "icon": {"item": "femboycompanion:white_tail"},
+    "title": {"translate": "advancements.femboycompanion.get_tail.title"},
+    "description": {"translate": "advancements.femboycompanion.get_tail.desc"},
+    "frame": "task",
+    "show_toast": true,
+    "announce_to_chat": false,
+    "hidden": false
+  },
+  "criteria": {
+    "has_item": {
+      "trigger": "minecraft:inventory_changed",
+      "conditions": {"items": [{"items": ["femboycompanion:white_tail", "femboycompanion:black_tail"]}]}
+    }
+  },
+  "rewards": {"experience": 5}
+}

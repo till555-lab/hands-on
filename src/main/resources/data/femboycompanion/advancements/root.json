@@ -1,0 +1,15 @@
+{
+  "display": {
+    "icon": {"item": "femboycompanion:white_double_ears"},
+    "title": {"translate": "advancements.femboycompanion.root.title"},
+    "description": {"translate": "advancements.femboycompanion.root.desc"},
+    "background": "minecraft:textures/block/dirt.png",
+    "frame": "task",
+    "show_toast": false,
+    "announce_to_chat": false,
+    "hidden": false
+  },
+  "criteria": {
+    "auto": {"trigger": "minecraft:tick"}
+  }
+}
