@@ -1,5 +1,6 @@
 package com.handson.net;
 
+import com.handson.client.ClientHooks;
 import com.handson.server.ServerEvents;
 import java.util.function.Supplier;
 import net.minecraft.entity.Entity;
@@ -8,13 +9,22 @@ import net.minecraft.entity.player.ServerPlayerEntity;
 import net.minecraft.item.ItemStack;
 import net.minecraft.network.PacketBuffer;
 import net.minecraft.util.Hand;
+import net.minecraft.util.Util;
 import net.minecraft.util.math.vector.Vector3d;
+import net.minecraft.util.text.TranslationTextComponent;
+import net.minecraftforge.api.distmarker.Dist;
+import net.minecraftforge.fml.DistExecutor;
 import net.minecraftforge.fml.network.NetworkEvent;
 
 public class HandsPacket {
-    public static final int MODE = 0;
+    /** Client to server: player asks to switch between vanilla and Hands On controls (needs cheats). */
+    public static final int REQUEST_TOGGLE = 0;
+    /** Client to server: grab the item entity with the given id. */
     public static final int GRAB = 1;
+    /** Client to server: drop the item in the given hand. */
     public static final int DROP = 2;
+    /** Server to client: set the control mode. */
+    public static final int SET_MODE = 3;
 
     public final int action;
     public final int hand; // 0 = left (offhand), 1 = right (main hand)
@@ -47,14 +57,18 @@ public class HandsPacket {
         ctx.get().enqueueWork(() -> {
             ServerPlayerEntity player = ctx.get().getSender();
             if (player == null) {
+                // received on the client
+                if (p.action == SET_MODE) {
+                    DistExecutor.unsafeRunWhenOn(Dist.CLIENT, () -> () -> ClientHooks.applyMode(p.flag));
+                }
                 return;
             }
-            if (p.action == MODE) {
-                if (p.flag) {
-                    ServerEvents.MODE.add(player.getUUID());
-                } else {
-                    ServerEvents.MODE.remove(player.getUUID());
+            if (p.action == REQUEST_TOGGLE) {
+                if (!player.createCommandSourceStack().hasPermission(2)) {
+                    player.sendMessage(new TranslationTextComponent("message.handson.need_cheats"), Util.NIL_UUID);
+                    return;
                 }
+                ServerEvents.setMode(player, !ServerEvents.MODE.contains(player.getUUID()));
                 return;
             }
             if (!ServerEvents.MODE.contains(player.getUUID())) {

@@ -3,9 +3,10 @@
   "key.handson.left_hand": "Left hand",
   "key.handson.right_hand": "Right hand",
   "key.handson.lock": "Grip lock",
-  "key.handson.toggle": "Switch Hands On / vanilla controls",
+  "key.handson.toggle": "Switch Hands On / vanilla controls (cheats)",
   "message.handson.mode_on": "Hands On controls: ON",
   "message.handson.mode_off": "Vanilla controls",
+  "message.handson.need_cheats": "Cheats are required to switch controls",
   "hud.handson.locked": "Grip locked",
   "hud.handson.unlocked": "Grip unlocked"
 }

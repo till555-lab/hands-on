@@ -15,6 +15,7 @@ import net.minecraft.client.renderer.WorldRenderer;
 import net.minecraft.client.renderer.entity.PlayerRenderer;
 import net.minecraft.client.renderer.model.ItemCameraTransforms;
 import net.minecraft.client.settings.KeyBinding;
+import net.minecraft.client.settings.PointOfView;
 import net.minecraft.entity.item.ItemEntity;
 import net.minecraft.item.ItemStack;
 import net.minecraft.util.Hand;
@@ -24,6 +25,7 @@ import net.minecraft.util.math.MathHelper;
 import net.minecraft.util.math.vector.Vector3d;
 import net.minecraft.util.math.vector.Vector3f;
 import net.minecraft.util.text.TranslationTextComponent;
+import net.minecraftforge.client.event.InputEvent;
 import net.minecraftforge.client.event.RenderGameOverlayEvent;
 import net.minecraftforge.client.event.RenderHandEvent;
 import net.minecraftforge.client.event.RenderWorldLastEvent;
@@ -33,6 +35,15 @@ import net.minecraftforge.eventbus.api.SubscribeEvent;
 public class ClientEvents {
     private static final float SPEED = 0.34F;
     private static final double REACH = 4.0D;
+
+    // Hand pose (view space: +x right, +y up, -z forward)
+    private static final double SHOULDER_X = 0.45D;
+    private static final double SHOULDER_Y = -0.60D;
+    private static final double SHOULDER_Z = -0.45D;
+    private static final double ARM_LEN = 0.625D;     // length of the arm model (10 px)
+    private static final double STRETCH = 1.2D;       // extra length factor at full extension
+    private static final double ITEM_UP = 0.05D;      // item offset from the hand tip
+    private static final double ITEM_FWD = -0.10D;
 
     private boolean toggleWas = false;
     private boolean lockWas = false;
@@ -52,9 +63,10 @@ public class ClientEvents {
             return;
         }
 
+        // M asks the server to switch controls (the server checks for cheats)
         boolean toggleNow = mc.screen == null && HandKeys.TOGGLE.isDown();
         if (toggleNow && !toggleWas) {
-            toggleMode(mc);
+            HandsNet.CHANNEL.sendToServer(new HandsPacket(HandsPacket.REQUEST_TOGGLE, 0, 0, false));
         }
         toggleWas = toggleNow;
 
@@ -71,6 +83,10 @@ public class ClientEvents {
             drain(o.keyDrop);
             drain(o.keySwapOffhand);
             drain(o.keyAdvancements);
+            // no third person: F5 always returns to the first-person view
+            if (o.getCameraType() != PointOfView.FIRST_PERSON) {
+                o.setCameraType(PointOfView.FIRST_PERSON);
+            }
         }
 
         boolean lockNow = mc.screen == null && HandKeys.LOCK.isDown();
@@ -107,12 +123,11 @@ public class ClientEvents {
         }
     }
 
-    private void toggleMode(Minecraft mc) {
-        HandsState.modeOn = !HandsState.modeOn;
-        HandsState.clearHands();
-        HandsNet.CHANNEL.sendToServer(new HandsPacket(HandsPacket.MODE, 0, 0, HandsState.modeOn));
-        mc.player.displayClientMessage(new TranslationTextComponent(
-                HandsState.modeOn ? "message.handson.mode_on" : "message.handson.mode_off"), true);
+    @SubscribeEvent
+    public void onScroll(InputEvent.MouseScrollEvent event) {
+        if (HandsState.modeOn && Minecraft.getInstance().screen == null) {
+            event.setCanceled(true);
+        }
     }
 
     private void onRelease(Minecraft mc, int h, ItemEntity target) {
@@ -184,16 +199,21 @@ public class ClientEvents {
         boolean right = side == HandSide.RIGHT;
         float f = right ? 1.0F : -1.0F;
 
-        // arm (placeholder: the player's own skin arm)
+        // shoulder position and arm direction
+        double px = f * (SHOULDER_X - 0.28D * ext);
+        double py = SHOULDER_Y + 0.30D * ext;
+        double pz = SHOULDER_Z - 0.55D * ext;
+        float yawDeg = f * -8.0F;
+        float pitchDeg = -68.0F - 12.0F * ext;
+        double stretch = 1.0D + STRETCH * ext;
+
+        // arm (placeholder: the player's own skin arm, pointing forward)
         ms.pushPose();
-        ms.translate(f * -0.12D * ext, 0.22D * ext, -1.15D * ext);
-        ms.translate(f * 0.64D, -0.6D, -0.72D);
-        ms.mulPose(Vector3f.YP.rotationDegrees(f * 45.0F));
-        ms.translate(f * -1.0D, 3.6D, 3.5D);
-        ms.mulPose(Vector3f.ZP.rotationDegrees(f * 120.0F));
-        ms.mulPose(Vector3f.XP.rotationDegrees(200.0F));
-        ms.mulPose(Vector3f.YP.rotationDegrees(f * -135.0F));
-        ms.translate(f * 5.6D, 0.0D, 0.0D);
+        ms.translate(px, py, pz);
+        ms.mulPose(Vector3f.YP.rotationDegrees(yawDeg));
+        ms.mulPose(Vector3f.XP.rotationDegrees(pitchDeg));
+        ms.translate(f * 0.3125D, -0.125D, 0.0D); // cancel the pivot offset of the arm model
+        ms.scale(1.0F, (float) stretch, 1.0F);
         PlayerRenderer renderer = (PlayerRenderer) mc.getEntityRenderDispatcher().getRenderer(player);
         if (right) {
             renderer.renderRightHand(ms, buf, light, player);
@@ -202,12 +222,17 @@ public class ClientEvents {
         }
         ms.popPose();
 
-        // item held in this hand (normal 2D item look)
+        // item sits at the tip of the arm and moves with it
         ItemStack stack = player.getItemInHand(right ? Hand.MAIN_HAND : Hand.OFF_HAND);
         if (!stack.isEmpty()) {
+            double th = Math.toRadians(pitchDeg);
+            double ph = Math.toRadians(yawDeg);
+            double len = ARM_LEN * stretch;
+            double tx = px + Math.sin(th) * Math.sin(ph) * len;
+            double ty = py + Math.cos(th) * len;
+            double tz = pz + Math.sin(th) * Math.cos(ph) * len;
             ms.pushPose();
-            ms.translate(f * -0.12D * ext, 0.22D * ext, -1.15D * ext);
-            ms.translate(f * 0.56D, -0.52D, -0.72D);
+            ms.translate(tx, ty + ITEM_UP, tz + ITEM_FWD);
             mc.getItemInHandRenderer().renderItem(player, stack,
                     right ? ItemCameraTransforms.TransformType.FIRST_PERSON_RIGHT_HAND
                           : ItemCameraTransforms.TransformType.FIRST_PERSON_LEFT_HAND,
@@ -274,13 +299,17 @@ public class ClientEvents {
             return;
         }
         Minecraft mc = Minecraft.getInstance();
+        if (mc.player == null) {
+            return;
+        }
         MatrixStack ms = event.getMatrixStack();
+
+        // grip lock icon, top left
         int x = 6;
         int y = 6;
         boolean locked = HandsState.locked;
         int shackle = 0xFFCCCCCC;
         int body = locked ? 0xFFE0B030 : 0xFF70D070;
-
         if (locked) {
             AbstractGui.fill(ms, x + 2, y, x + 10, y + 2, shackle);
             AbstractGui.fill(ms, x + 2, y, x + 4, y + 7, shackle);
@@ -291,9 +320,22 @@ public class ClientEvents {
             AbstractGui.fill(ms, x + 8, y - 2, x + 10, y + 1, shackle);
         }
         AbstractGui.fill(ms, x, y + 6, x + 12, y + 14, body);
-
-        String text = new TranslationTextComponent(
+        String lockText = new TranslationTextComponent(
                 locked ? "hud.handson.locked" : "hud.handson.unlocked").getString();
-        mc.font.drawShadow(ms, text, x + 16, y + 3, 0xFFFFFF);
+        mc.font.drawShadow(ms, lockText, x + 16, y + 3, 0xFFFFFF);
+
+        // what the hands hold: count and name, blue on the left, red on the right
+        int w = mc.getWindow().getGuiScaledWidth();
+        int hgt = mc.getWindow().getGuiScaledHeight();
+        ItemStack left = mc.player.getItemInHand(Hand.OFF_HAND);
+        ItemStack right = mc.player.getItemInHand(Hand.MAIN_HAND);
+        if (!left.isEmpty()) {
+            String t = left.getCount() + "x " + left.getHoverName().getString();
+            mc.font.drawShadow(ms, t, w / 2.0F - 98.0F - mc.font.width(t), hgt - 48.0F, 0x6699FF);
+        }
+        if (!right.isEmpty()) {
+            String t = right.getCount() + "x " + right.getHoverName().getString();
+            mc.font.drawShadow(ms, t, w / 2.0F + 98.0F, hgt - 48.0F, 0xFF5555);
+        }
     }
 }

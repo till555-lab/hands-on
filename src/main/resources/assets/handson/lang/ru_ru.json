@@ -3,9 +3,10 @@
   "key.handson.left_hand": "Левая рука",
   "key.handson.right_hand": "Правая рука",
   "key.handson.lock": "Замок хвата",
-  "key.handson.toggle": "Переключить управление Hands On / ванильное",
+  "key.handson.toggle": "Переключить управление Hands On / ванильное (читы)",
   "message.handson.mode_on": "Управление Hands On: ВКЛ",
   "message.handson.mode_off": "Ванильное управление",
+  "message.handson.need_cheats": "Для переключения управления нужны читы",
   "hud.handson.locked": "Хват заперт",
   "hud.handson.unlocked": "Хват открыт"
 }
