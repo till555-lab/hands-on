@@ -8,6 +8,10 @@
   "message.handson.mode_off": "Ванільне керування",
   "message.handson.need_cheats": "Для перемикання керування потрібні чити",
   "hud.handson.locked": "Хват замкнено",
+  "key.handson.inventory": "Інвентар Hands On",
+  "key.handson.inventory_alt": "Інвентар Hands On (додаткова)",
+  "hint.handson.hands": "%s / %s: витягнути ліву / праву руку, відпустити: взяти або кинути",
+  "hint.handson.lock": "%s: замкнути хват (предмети не випадуть)",
   "label.handson.left_hand": "Ліва рука",
   "label.handson.right_hand": "Права рука",
   "hud.handson.unlocked": "Хват відкрито"

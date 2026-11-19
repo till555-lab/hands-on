@@ -8,6 +8,10 @@
   "message.handson.mode_off": "Ванильное управление",
   "message.handson.need_cheats": "Для переключения управления нужны читы",
   "hud.handson.locked": "Хват заперт",
+  "key.handson.inventory": "Инвентарь Hands On",
+  "key.handson.inventory_alt": "Инвентарь Hands On (дополнительная)",
+  "hint.handson.hands": "%s / %s: вытянуть левую / правую руку, отпустить: взять или бросить",
+  "hint.handson.lock": "%s: запереть хват (предметы не выпадут)",
   "label.handson.left_hand": "Левая рука",
   "label.handson.right_hand": "Правая рука",
   "hud.handson.unlocked": "Хват открыт"

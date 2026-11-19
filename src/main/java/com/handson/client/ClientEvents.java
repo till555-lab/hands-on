@@ -4,6 +4,7 @@ import com.handson.HandSlots;
 import com.handson.net.HandsNet;
 import com.handson.net.HandsPacket;
 import com.mojang.blaze3d.matrix.MatrixStack;
+import com.mojang.blaze3d.systems.RenderSystem;
 import com.mojang.blaze3d.vertex.IVertexBuilder;
 import java.util.List;
 import java.util.Optional;
@@ -12,6 +13,7 @@ import net.minecraft.client.Minecraft;
 import net.minecraft.client.entity.player.ClientPlayerEntity;
 import net.minecraft.client.gui.AbstractGui;
 import net.minecraft.client.gui.screen.inventory.InventoryScreen;
+import net.minecraft.client.gui.widget.Widget;
 import net.minecraft.client.renderer.IRenderTypeBuffer;
 import net.minecraft.client.renderer.RenderType;
 import net.minecraft.client.renderer.WorldRenderer;
@@ -80,12 +82,7 @@ public class ClientEvents {
             GameSettings o = mc.options;
             drain(o.keyAttack);
             drain(o.keyUse);
-            while (o.keyInventory.consumeClick()) {
-                if (mc.screen == null) {
-                    mc.setScreen(new HandsScreen());
-                }
-            }
-            o.keyInventory.setDown(false);
+            drain(o.keyInventory);
             drain(o.keyDrop);
             drain(o.keySwapOffhand);
             drain(o.keyAdvancements);
@@ -382,7 +379,7 @@ public class ClientEvents {
             int x = screen.getGuiLeft() + HandSlots.SCREEN_X;
             int y = screen.getGuiTop() + (h == 0 ? HandSlots.SCREEN_Y_LEFT : HandSlots.SCREEN_Y_RIGHT);
             int rim = h == 1 ? 0xFFFF4040 : 0xFF4080FF;
-            AbstractGui.fill(ms, x - 3, y - 3, x + 19, y + 19, rim);
+            AbstractGui.fill(ms, x - 2, y - 2, x + 18, y + 18, rim);
             AbstractGui.fill(ms, x - 1, y - 1, x + 17, y + 17, 0xFF373737);
             AbstractGui.fill(ms, x, y, x + 17, y + 17, 0xFFFFFFFF);
             AbstractGui.fill(ms, x, y, x + 16, y + 16, 0xFF8B8B8B);
@@ -394,6 +391,40 @@ public class ClientEvents {
             ms.scale(0.75F, 0.75F, 1.0F);
             mc.font.drawShadow(ms, label, -mc.font.width(label) / 2.0F, 0.0F, 0xFFFFFF);
             ms.popPose();
+        }
+    }
+
+    // ------------------------------------------ vanilla HUD in Hands On mode
+
+    private static boolean isLowered(RenderGameOverlayEvent.ElementType t) {
+        return t == RenderGameOverlayEvent.ElementType.HEALTH
+                || t == RenderGameOverlayEvent.ElementType.ARMOR
+                || t == RenderGameOverlayEvent.ElementType.FOOD
+                || t == RenderGameOverlayEvent.ElementType.AIR
+                || t == RenderGameOverlayEvent.ElementType.HEALTHMOUNT
+                || t == RenderGameOverlayEvent.ElementType.EXPERIENCE
+                || t == RenderGameOverlayEvent.ElementType.JUMPBAR;
+    }
+
+    /** The hotbar is hidden; health, food, armor and experience move down to where it was. */
+    @SubscribeEvent
+    public void onOverlayPre(RenderGameOverlayEvent.Pre event) {
+        if (!HandsState.modeOn) {
+            return;
+        }
+        RenderGameOverlayEvent.ElementType t = event.getType();
+        if (t == RenderGameOverlayEvent.ElementType.HOTBAR) {
+            event.setCanceled(true);
+        } else if (isLowered(t) && !event.isCanceled()) {
+            event.getMatrixStack().pushPose();
+            event.getMatrixStack().translate(0.0D, 22.0D, 0.0D);
+        }
+    }
+
+    @SubscribeEvent
+    public void onOverlayPostLowered(RenderGameOverlayEvent.Post event) {
+        if (HandsState.modeOn && isLowered(event.getType())) {
+            event.getMatrixStack().popPose();
         }
     }
 
@@ -435,12 +466,34 @@ public class ClientEvents {
         int hgt = mc.getWindow().getGuiScaledHeight();
         drawHeld(mc, ms, HandSlots.get(mc.player, 0), w / 2 - 118, hgt - 66, false);
         drawHeld(mc, ms, HandSlots.get(mc.player, 1), w / 2 + 102, hgt - 66, true);
+        drawHints(mc, ms, hgt);
+    }
+
+    /** One cell of the vanilla hotbar texture; (x, y) is the position of the item inside the cell. */
+    private static void drawHotbarCell(Minecraft mc, MatrixStack ms, int x, int y) {
+        mc.getTextureManager().bind(Widget.WIDGETS_LOCATION);
+        RenderSystem.color4f(1.0F, 1.0F, 1.0F, 1.0F);
+        AbstractGui.blit(ms, x - 3, y - 3, 0, 0.0F, 0.0F, 21, 22, 256, 256);
+        AbstractGui.blit(ms, x + 18, y - 3, 0, 181.0F, 0.0F, 1, 22, 256, 256);
+    }
+
+    /** Small hints in the bottom left corner. */
+    private static void drawHints(Minecraft mc, MatrixStack ms, int hgt) {
+        String[] lines = {
+            new TranslationTextComponent("hint.handson.hands",
+                    HandKeys.LEFT.getTranslatedKeyMessage(), HandKeys.RIGHT.getTranslatedKeyMessage()).getString(),
+            new TranslationTextComponent("hint.handson.lock",
+                    HandKeys.LOCK.getTranslatedKeyMessage()).getString()
+        };
+        int y = hgt - 6 - 10 * lines.length;
+        for (String line : lines) {
+            mc.font.drawShadow(ms, line, 6.0F, (float) y, 0xCCCCCC);
+            y += 10;
+        }
     }
 
     private static void drawHeld(Minecraft mc, MatrixStack ms, ItemStack stack, int x, int y, boolean right) {
-        int rim = right ? 0xFFFF4040 : 0xFF4080FF;
-        AbstractGui.fill(ms, x - 3, y - 3, x + 19, y + 19, rim);
-        AbstractGui.fill(ms, x - 1, y - 1, x + 17, y + 17, 0xFF2B2B2B);
+        drawHotbarCell(mc, ms, x, y);
         if (stack.isEmpty()) {
             return;
         }
