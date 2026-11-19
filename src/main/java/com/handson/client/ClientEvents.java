@@ -24,6 +24,7 @@ import net.minecraft.client.renderer.model.ItemCameraTransforms;
 import net.minecraft.client.renderer.texture.OverlayTexture;
 import net.minecraft.client.settings.KeyBinding;
 import net.minecraft.client.settings.PointOfView;
+import net.minecraft.client.util.InputMappings;
 import net.minecraft.entity.item.ItemEntity;
 import net.minecraft.item.ItemStack;
 import net.minecraft.util.Hand;
@@ -40,6 +41,7 @@ import net.minecraftforge.client.event.RenderHandEvent;
 import net.minecraftforge.client.event.RenderWorldLastEvent;
 import net.minecraftforge.event.TickEvent;
 import net.minecraftforge.eventbus.api.SubscribeEvent;
+import org.lwjgl.glfw.GLFW;
 
 public class ClientEvents {
     private static final float SPEED = 0.34F;
@@ -59,6 +61,7 @@ public class ClientEvents {
     private boolean toggleWas = false;
     private boolean lockWas = false;
     private boolean invWas = false;
+    private boolean cWas = false;
 
     // ---------------------------------------------------------------- tick
 
@@ -73,6 +76,7 @@ public class ClientEvents {
             toggleWas = false;
             lockWas = false;
             invWas = false;
+            cWas = false;
             return;
         }
 
@@ -100,6 +104,15 @@ public class ClientEvents {
                 drain(slotKey);
             }
             skipFrontView(o);
+
+            // C works like Shift (sneak)
+            boolean cNow = InputMappings.isKeyDown(mc.getWindow().getWindow(), GLFW.GLFW_KEY_C);
+            if (cNow) {
+                o.keyShift.setDown(true);
+            } else if (cWas) {
+                o.keyShift.setDown(false);
+            }
+            cWas = cNow;
         }
 
         // smoothed head rotation for the hand lag
@@ -342,21 +355,22 @@ public class ClientEvents {
 
     // ------------------------------------------------------ ring inventory
 
-    /** Returns {x, y, z, yaw, tilt} of ring slot i. The ring follows the player but keeps its own direction. */
+    /** Returns {x, y, z, yaw, tilt} of ring slot i. The ring follows the body of the player, not the camera. */
     private static double[] ringSlot(ClientPlayerEntity p, float pt, int i) {
         double px = p.xo + (p.getX() - p.xo) * pt;
         double py = p.yo + (p.getY() - p.yo) * pt;
         double pz = p.zo + (p.getZ() - p.zo) * pt;
-        double by = py + p.getEyeHeight() - 0.4D;
+        double by = py + 1.22D; // fixed height, it does not change when sneaking
+        double body = MathHelper.rotLerp(pt, p.yBodyRotO, p.yBodyRot);
         double yaw;
         double dy = 0.0D;
         double r = RING_R;
         double tilt = 0.0D;
         if (i < 8) {
-            yaw = HandsState.anchorYaw + i * 45.0D;
-        } else {
+            yaw = body + i * 45.0D;
+        } else if (i < 16) {
             int k = (i - 8) % 4;
-            yaw = HandsState.anchorYaw + k * 90.0D;
+            yaw = body + k * 90.0D;
             r = RING_R - 0.15D;
             if (i < 12) {
                 dy = 0.62D;
@@ -365,6 +379,12 @@ public class ClientEvents {
                 dy = -0.62D;
                 tilt = 35.0D;
             }
+        } else {
+            int k = i - 16;
+            yaw = body + (1 + 2 * k) * 45.0D;
+            r = RING_R - 0.15D;
+            dy = -0.62D;
+            tilt = 35.0D;
         }
         double ang = Math.toRadians(yaw);
         return new double[] {px - Math.sin(ang) * r, by + dy, pz + Math.cos(ang) * r, yaw, tilt};
@@ -413,11 +433,17 @@ public class ClientEvents {
             float r = 0.85F;
             float g = 0.85F;
             float b = 0.85F;
-            if (HandsState.ringHover[1] == i) {
+            boolean hoverLeft = HandsState.ringHover[0] == i;
+            boolean hoverRight = HandsState.ringHover[1] == i;
+            if (hoverLeft && hoverRight) {
+                r = 0.7F;
+                g = 0.3F;
+                b = 1.0F;
+            } else if (hoverRight) {
                 r = 1.0F;
                 g = 0.2F;
                 b = 0.2F;
-            } else if (HandsState.ringHover[0] == i) {
+            } else if (hoverLeft) {
                 r = 0.25F;
                 g = 0.5F;
                 b = 1.0F;
@@ -428,6 +454,10 @@ public class ClientEvents {
             WorldRenderer.renderLineBox(ms, lines, -PANEL, -PANEL, -0.01D, PANEL, PANEL, 0.01D, r, g, b, 0.9F);
             WorldRenderer.renderLineBox(ms, lines, -PANEL - 0.01D, -PANEL - 0.01D, -0.01D,
                     PANEL + 0.01D, PANEL + 0.01D, 0.01D, r, g, b, 0.9F);
+            if (HandSlots.getRing(p, i).isEmpty()) {
+                WorldRenderer.renderLineBox(ms, lines, -0.07D, -0.005D, -0.005D, 0.07D, 0.005D, 0.005D, 1.0F, 1.0F, 1.0F, 0.9F);
+                WorldRenderer.renderLineBox(ms, lines, -0.005D, -0.07D, -0.005D, 0.005D, 0.07D, 0.005D, 1.0F, 1.0F, 1.0F, 0.9F);
+            }
             ms.popPose();
         }
         buf.endBatch(RenderType.lines());
@@ -627,8 +657,8 @@ public class ClientEvents {
         // what the hands hold: item icon with count, the name below it (white)
         int w = mc.getWindow().getGuiScaledWidth();
         int hgt = mc.getWindow().getGuiScaledHeight();
-        drawHeld(mc, ms, HandSlots.get(mc.player, 0), w / 2 - 118, hgt - 66, false);
-        drawHeld(mc, ms, HandSlots.get(mc.player, 1), w / 2 + 102, hgt - 66, true);
+        drawHeld(mc, ms, HandSlots.get(mc.player, 0), w / 2 - 118, hgt - 19, false);
+        drawHeld(mc, ms, HandSlots.get(mc.player, 1), w / 2 + 102, hgt - 19, true);
         drawHints(mc, ms, hgt);
     }
 

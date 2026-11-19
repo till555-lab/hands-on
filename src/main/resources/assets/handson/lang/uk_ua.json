@@ -20,5 +20,7 @@
   "hint.handson.inventory": "%s / %s: інвентар",
   "hint.handson.inventory.more": "(слоти навколо гравця)",
   "hint.handson.take": "Відпусти: взяти предмет",
-  "hint.handson.slot": "Відпусти: покласти в слот або взяти зі слота"
+  "hint.handson.slot": "Відпусти: покласти в слот або взяти зі слота",
+  "key.handson.use_right": "Використати предмет у правій руці",
+  "key.handson.use_left": "Використати предмет у лівій руці"
 }

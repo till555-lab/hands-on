@@ -20,5 +20,7 @@
   "hint.handson.inventory": "%s / %s: инвентарь",
   "hint.handson.inventory.more": "(слоты вокруг игрока)",
   "hint.handson.take": "Отпусти: взять предмет",
-  "hint.handson.slot": "Отпусти: положить в слот или взять из слота"
+  "hint.handson.slot": "Отпусти: положить в слот или взять из слота",
+  "key.handson.use_right": "Использовать предмет в правой руке",
+  "key.handson.use_left": "Использовать предмет в левой руке"
 }

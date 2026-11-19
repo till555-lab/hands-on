@@ -15,6 +15,8 @@ public class HandKeys {
     public static KeyBinding TOGGLE;
     public static KeyBinding INVENTORY;
     public static KeyBinding INVENTORY_ALT;
+    public static KeyBinding USE_RIGHT;
+    public static KeyBinding USE_LEFT;
 
     public static void register() {
         LEFT = new KeyBinding("key.handson.left_hand", KeyConflictContext.IN_GAME,
@@ -29,11 +31,17 @@ public class HandKeys {
                 InputMappings.Type.KEYSYM, GLFW.GLFW_KEY_G, CATEGORY);
         INVENTORY_ALT = new KeyBinding("key.handson.inventory_alt", KeyConflictContext.IN_GAME,
                 InputMappings.Type.KEYSYM, GLFW.GLFW_KEY_Z, CATEGORY);
+        USE_RIGHT = new KeyBinding("key.handson.use_right", KeyConflictContext.IN_GAME,
+                InputMappings.Type.KEYSYM, GLFW.GLFW_KEY_E, CATEGORY);
+        USE_LEFT = new KeyBinding("key.handson.use_left", KeyConflictContext.IN_GAME,
+                InputMappings.Type.KEYSYM, GLFW.GLFW_KEY_Q, CATEGORY);
         ClientRegistry.registerKeyBinding(LEFT);
         ClientRegistry.registerKeyBinding(RIGHT);
         ClientRegistry.registerKeyBinding(LOCK);
         ClientRegistry.registerKeyBinding(TOGGLE);
         ClientRegistry.registerKeyBinding(INVENTORY);
         ClientRegistry.registerKeyBinding(INVENTORY_ALT);
+        ClientRegistry.registerKeyBinding(USE_RIGHT);
+        ClientRegistry.registerKeyBinding(USE_LEFT);
     }
 }

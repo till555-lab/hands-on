@@ -20,5 +20,7 @@
   "hint.handson.inventory": "%s / %s: inventory",
   "hint.handson.inventory.more": "(slots around the player)",
   "hint.handson.take": "Release: take the item",
-  "hint.handson.slot": "Release: put into or take from the slot"
+  "hint.handson.slot": "Release: put into or take from the slot",
+  "key.handson.use_right": "Use the item in the right hand",
+  "key.handson.use_left": "Use the item in the left hand"
 }

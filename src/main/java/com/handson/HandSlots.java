@@ -13,9 +13,9 @@ public class HandSlots {
     public static final int LEFT = 46;
     public static final int RIGHT = 47;
 
-    /** Ring inventory: slots 0-7 around the player, 8-11 above and 12-15 below the four straight ones. */
+    /** Ring inventory: slots 0-7 around the player, 8-11 above and 12-15 below the four straight ones, 16-19 below the diagonal ones. */
     public static final int RING_START = 48;
-    public static final int RING_COUNT = 16;
+    public static final int RING_COUNT = 20;
     public static final int SCREEN_RING_X = 180;
     public static final int SCREEN_RING_Y = 82;
 
