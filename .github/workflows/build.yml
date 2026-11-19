@@ -35,14 +35,11 @@ jobs:
         with:
           gradle-version: 7.4.2
 
-      - name: Generate assets
-        run: bash tools/gen_assets.sh
-
       - name: Build
         run: gradle build --no-daemon
 
       - name: Upload jar
         uses: actions/upload-artifact@v4
         with:
-          name: femboycompanion-jar
+          name: handson-jar
           path: build/libs/*.jar
