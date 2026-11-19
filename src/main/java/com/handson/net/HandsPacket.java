@@ -1,5 +1,6 @@
 package com.handson.net;
 
+import com.handson.HandSlots;
 import com.handson.client.ClientHooks;
 import com.handson.server.ServerEvents;
 import java.util.function.Supplier;
@@ -8,7 +9,6 @@ import net.minecraft.entity.item.ItemEntity;
 import net.minecraft.entity.player.ServerPlayerEntity;
 import net.minecraft.item.ItemStack;
 import net.minecraft.network.PacketBuffer;
-import net.minecraft.util.Hand;
 import net.minecraft.util.Util;
 import net.minecraft.util.math.vector.Vector3d;
 import net.minecraft.util.text.TranslationTextComponent;
@@ -27,7 +27,7 @@ public class HandsPacket {
     public static final int SET_MODE = 3;
 
     public final int action;
-    public final int hand; // 0 = left (offhand), 1 = right (main hand)
+    public final int hand; // 0 = left hand slot, 1 = right hand slot
     public final int id;
     public final boolean flag;
 
@@ -74,17 +74,20 @@ public class HandsPacket {
             if (!ServerEvents.MODE.contains(player.getUUID())) {
                 return;
             }
-            Hand hand = p.hand == 0 ? Hand.OFF_HAND : Hand.MAIN_HAND;
+            if (!HandSlots.ready(player)) {
+                return;
+            }
+            int h = p.hand == 1 ? 1 : 0;
             if (p.action == GRAB) {
-                grab(player, hand, p.id);
+                grab(player, h, p.id);
             } else if (p.action == DROP) {
-                drop(player, hand);
+                drop(player, h);
             }
         });
         ctx.get().setPacketHandled(true);
     }
 
-    private static void grab(ServerPlayerEntity player, Hand hand, int entityId) {
+    private static void grab(ServerPlayerEntity player, int h, int entityId) {
         Entity e = player.level.getEntity(entityId);
         if (!(e instanceof ItemEntity) || !e.isAlive()) {
             return;
@@ -94,15 +97,16 @@ public class HandsPacket {
         }
         ItemEntity itemEntity = (ItemEntity) e;
         ItemStack src = itemEntity.getItem();
-        ItemStack cur = player.getItemInHand(hand);
+        ItemStack cur = HandSlots.get(player, h);
         if (cur.isEmpty()) {
-            player.setItemInHand(hand, src.copy());
+            HandSlots.set(player, h, src.copy());
             itemEntity.remove();
         } else if (ItemStack.isSame(cur, src) && ItemStack.tagMatches(cur, src)) {
             int space = cur.getMaxStackSize() - cur.getCount();
             int move = Math.min(space, src.getCount());
             if (move > 0) {
                 cur.grow(move);
+                HandSlots.set(player, h, cur);
                 src.shrink(move);
                 if (src.isEmpty()) {
                     itemEntity.remove();
@@ -113,13 +117,13 @@ public class HandsPacket {
         }
     }
 
-    private static void drop(ServerPlayerEntity player, Hand hand) {
-        ItemStack cur = player.getItemInHand(hand);
+    private static void drop(ServerPlayerEntity player, int h) {
+        ItemStack cur = HandSlots.get(player, h);
         if (cur.isEmpty()) {
             return;
         }
         ItemStack dropped = cur.copy();
-        player.setItemInHand(hand, ItemStack.EMPTY);
+        HandSlots.set(player, h, ItemStack.EMPTY);
         Vector3d look = player.getLookAngle();
         Vector3d pos = player.getEyePosition(1.0F).add(look.x * 0.5D, look.y * 0.5D - 0.3D, look.z * 0.5D);
         ItemEntity itemEntity = new ItemEntity(player.level, pos.x, pos.y, pos.z, dropped);

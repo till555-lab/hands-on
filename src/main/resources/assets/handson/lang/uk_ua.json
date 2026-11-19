@@ -8,5 +8,7 @@
   "message.handson.mode_off": "Ванільне керування",
   "message.handson.need_cheats": "Для перемикання керування потрібні чити",
   "hud.handson.locked": "Хват замкнено",
+  "label.handson.left_hand": "Ліва рука",
+  "label.handson.right_hand": "Права рука",
   "hud.handson.unlocked": "Хват відкрито"
 }

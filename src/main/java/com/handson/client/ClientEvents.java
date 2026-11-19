@@ -1,14 +1,17 @@
 package com.handson.client;
 
+import com.handson.HandSlots;
 import com.handson.net.HandsNet;
 import com.handson.net.HandsPacket;
 import com.mojang.blaze3d.matrix.MatrixStack;
 import com.mojang.blaze3d.vertex.IVertexBuilder;
+import java.util.List;
 import java.util.Optional;
 import net.minecraft.client.GameSettings;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.entity.player.ClientPlayerEntity;
 import net.minecraft.client.gui.AbstractGui;
+import net.minecraft.client.gui.screen.inventory.InventoryScreen;
 import net.minecraft.client.renderer.IRenderTypeBuffer;
 import net.minecraft.client.renderer.RenderType;
 import net.minecraft.client.renderer.WorldRenderer;
@@ -19,10 +22,12 @@ import net.minecraft.client.settings.PointOfView;
 import net.minecraft.entity.item.ItemEntity;
 import net.minecraft.item.ItemStack;
 import net.minecraft.util.Hand;
+import net.minecraft.util.IReorderingProcessor;
 import net.minecraft.util.math.AxisAlignedBB;
 import net.minecraft.util.math.MathHelper;
 import net.minecraft.util.math.vector.Vector3d;
 import net.minecraft.util.text.TranslationTextComponent;
+import net.minecraftforge.client.event.GuiContainerEvent;
 import net.minecraftforge.client.event.InputEvent;
 import net.minecraftforge.client.event.RenderGameOverlayEvent;
 import net.minecraftforge.client.event.RenderHandEvent;
@@ -75,7 +80,12 @@ public class ClientEvents {
             GameSettings o = mc.options;
             drain(o.keyAttack);
             drain(o.keyUse);
-            drain(o.keyInventory);
+            while (o.keyInventory.consumeClick()) {
+                if (mc.screen == null) {
+                    mc.setScreen(new HandsScreen());
+                }
+            }
+            o.keyInventory.setDown(false);
             drain(o.keyDrop);
             drain(o.keySwapOffhand);
             drain(o.keyAdvancements);
@@ -161,8 +171,7 @@ public class ClientEvents {
     }
 
     private void onRelease(Minecraft mc, int h, ItemEntity target) {
-        Hand hand = h == 0 ? Hand.OFF_HAND : Hand.MAIN_HAND;
-        ItemStack held = mc.player.getItemInHand(hand);
+        ItemStack held = HandSlots.get(mc.player, h);
         if (!held.isEmpty()) {
             if (!HandsState.locked) {
                 HandsNet.CHANNEL.sendToServer(new HandsPacket(HandsPacket.DROP, h, 0, false));
@@ -294,7 +303,7 @@ public class ClientEvents {
         ms.popPose();
 
         // item sits at the tip of the arm and moves with it
-        ItemStack stack = player.getItemInHand(right ? Hand.MAIN_HAND : Hand.OFF_HAND);
+        ItemStack stack = HandSlots.get(player, h);
         if (!stack.isEmpty()) {
             ms.pushPose();
             ms.translate(tip[0], tip[1] + ITEM_UP, tip[2] + ITEM_FWD);
@@ -356,6 +365,38 @@ public class ClientEvents {
         }
     }
 
+    // ------------------------------------------- hand slots in the inventory
+
+    @SubscribeEvent
+    public void onInventoryBackground(GuiContainerEvent.DrawBackground event) {
+        if (!(event.getGuiContainer() instanceof InventoryScreen)) {
+            return;
+        }
+        Minecraft mc = Minecraft.getInstance();
+        if (mc.player == null || !HandSlots.ready(mc.player)) {
+            return;
+        }
+        InventoryScreen screen = (InventoryScreen) event.getGuiContainer();
+        MatrixStack ms = event.getMatrixStack();
+        for (int h = 0; h < 2; h++) {
+            int x = screen.getGuiLeft() + HandSlots.SCREEN_X;
+            int y = screen.getGuiTop() + (h == 0 ? HandSlots.SCREEN_Y_LEFT : HandSlots.SCREEN_Y_RIGHT);
+            int rim = h == 1 ? 0xFFFF4040 : 0xFF4080FF;
+            AbstractGui.fill(ms, x - 3, y - 3, x + 19, y + 19, rim);
+            AbstractGui.fill(ms, x - 1, y - 1, x + 17, y + 17, 0xFF373737);
+            AbstractGui.fill(ms, x, y, x + 17, y + 17, 0xFFFFFFFF);
+            AbstractGui.fill(ms, x, y, x + 16, y + 16, 0xFF8B8B8B);
+
+            String label = new TranslationTextComponent(
+                    h == 1 ? "label.handson.right_hand" : "label.handson.left_hand").getString();
+            ms.pushPose();
+            ms.translate(x + 8.0F, y - 12.0F, 0.0F);
+            ms.scale(0.75F, 0.75F, 1.0F);
+            mc.font.drawShadow(ms, label, -mc.font.width(label) / 2.0F, 0.0F, 0xFFFFFF);
+            ms.popPose();
+        }
+    }
+
     // -------------------------------------------------------------- HUD
 
     @SubscribeEvent
@@ -392,18 +433,27 @@ public class ClientEvents {
         // what the hands hold: item icon with count, the name below it (white)
         int w = mc.getWindow().getGuiScaledWidth();
         int hgt = mc.getWindow().getGuiScaledHeight();
-        drawHeld(mc, ms, mc.player.getItemInHand(Hand.OFF_HAND), w / 2 - 118, hgt - 66);
-        drawHeld(mc, ms, mc.player.getItemInHand(Hand.MAIN_HAND), w / 2 + 102, hgt - 66);
+        drawHeld(mc, ms, HandSlots.get(mc.player, 0), w / 2 - 118, hgt - 66, false);
+        drawHeld(mc, ms, HandSlots.get(mc.player, 1), w / 2 + 102, hgt - 66, true);
     }
 
-    private static void drawHeld(Minecraft mc, MatrixStack ms, ItemStack stack, int x, int y) {
+    private static void drawHeld(Minecraft mc, MatrixStack ms, ItemStack stack, int x, int y, boolean right) {
+        int rim = right ? 0xFFFF4040 : 0xFF4080FF;
+        AbstractGui.fill(ms, x - 3, y - 3, x + 19, y + 19, rim);
+        AbstractGui.fill(ms, x - 1, y - 1, x + 17, y + 17, 0xFF2B2B2B);
         if (stack.isEmpty()) {
             return;
         }
         mc.getItemRenderer().renderAndDecorateItem(stack, x, y);
         mc.getItemRenderer().renderGuiItemDecorations(mc.font, stack, x, y);
-        String name = stack.getHoverName().getString();
-        float tw = mc.font.width(name);
-        mc.font.drawShadow(ms, name, x + 8.0F - tw / 2.0F, y + 20.0F, 0xFFFFFF);
+
+        // the name above the slot, wrapped into up to 5 lines
+        List<IReorderingProcessor> lines = mc.font.split(stack.getHoverName(), 90);
+        int n = Math.min(lines.size(), 5);
+        for (int i = 0; i < n; i++) {
+            IReorderingProcessor line = lines.get(i);
+            float lw = mc.font.width(line);
+            mc.font.drawShadow(ms, line, x + 8.0F - lw / 2.0F, y - 5.0F - (n - i) * 10.0F, 0xFFFFFF);
+        }
     }
 }
