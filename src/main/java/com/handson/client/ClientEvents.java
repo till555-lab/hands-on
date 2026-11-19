@@ -19,10 +19,8 @@ import net.minecraft.client.settings.PointOfView;
 import net.minecraft.entity.item.ItemEntity;
 import net.minecraft.item.ItemStack;
 import net.minecraft.util.Hand;
-import net.minecraft.util.HandSide;
 import net.minecraft.util.math.AxisAlignedBB;
 import net.minecraft.util.math.MathHelper;
-import net.minecraft.util.math.RayTraceResult;
 import net.minecraft.util.math.vector.Vector3d;
 import net.minecraft.util.text.TranslationTextComponent;
 import net.minecraftforge.client.event.InputEvent;
@@ -37,10 +35,9 @@ public class ClientEvents {
     private static final double REACH = 4.0D;
 
     // hand pose tuning
-    private static final double REACH_FWD = 0.30D;    // how far the hand moves forward when extended
-    private static final double STRETCH = 0.5D;       // extra arm length at full extension (0.5 = +50%)
-    private static final double SPREAD_DEG = 25.0D;   // hands swing apart when there is no target
-    private static final double LAG_SCALE = 0.5D;     // how much the hands lag behind head turns
+    private static final double REACH_FWD = 0.25D;    // how far the hand moves forward when extended
+    private static final double STRETCH = 0.25D;      // extra arm length at full extension (0.25 = +25%)
+    private static final double LAG_SCALE = 0.8D;     // how much the hands lag behind head turns
     private static final double ITEM_UP = 0.02D;      // item offset from the arm tip
     private static final double ITEM_FWD = -0.08D;
 
@@ -82,10 +79,10 @@ public class ClientEvents {
             drain(o.keyDrop);
             drain(o.keySwapOffhand);
             drain(o.keyAdvancements);
-            // F5 cycles only first person <-> third person from behind (the front view is skipped)
-            if (o.getCameraType() == PointOfView.THIRD_PERSON_FRONT) {
-                o.setCameraType(PointOfView.FIRST_PERSON);
+            for (KeyBinding slotKey : o.keyHotbarSlots) {
+                drain(slotKey);
             }
+            skipFrontView(o);
         }
 
         // smoothed head rotation for the hand lag
@@ -98,8 +95,8 @@ public class ClientEvents {
         } else {
             HandsState.prevSmoothYaw = HandsState.smoothYaw;
             HandsState.prevSmoothPitch = HandsState.smoothPitch;
-            HandsState.smoothYaw += MathHelper.wrapDegrees(mc.player.yRot - HandsState.smoothYaw) * 0.45F;
-            HandsState.smoothPitch += (mc.player.xRot - HandsState.smoothPitch) * 0.45F;
+            HandsState.smoothYaw += MathHelper.wrapDegrees(mc.player.yRot - HandsState.smoothYaw) * 0.4F;
+            HandsState.smoothPitch += (mc.player.xRot - HandsState.smoothPitch) * 0.4F;
         }
 
         boolean lockNow = mc.screen == null && HandKeys.LOCK.isDown();
@@ -117,24 +114,35 @@ public class ClientEvents {
             HandsState.prevExt[h] = HandsState.ext[h];
             if (now) {
                 HandsState.ext[h] = Math.min(1.0F, HandsState.ext[h] + SPEED);
-                ItemEntity t = findTarget(mc);
-                HandsState.target[h] = t;
-                if (t != null) {
-                    HandsState.aim[h] = t.position().add(0.0D, t.getBbHeight() / 2.0D, 0.0D);
-                } else {
-                    HandsState.aim[h] = blockAim(mc);
-                }
+                HandsState.target[h] = findTarget(mc);
             } else {
                 HandsState.ext[h] = Math.max(0.0F, HandsState.ext[h] - SPEED);
                 HandsState.target[h] = null;
-                if (HandsState.ext[h] <= 0.0F) {
-                    HandsState.aim[h] = null;
-                }
             }
             if (was && !now) {
                 onRelease(mc, h, prevTarget);
             }
             HandsState.down[h] = now;
+        }
+    }
+
+    /** Checked every rendered frame, so the front view never shows up, not even for one frame. */
+    @SubscribeEvent
+    public void onRenderTick(TickEvent.RenderTickEvent event) {
+        if (event.phase != TickEvent.Phase.START || !HandsState.modeOn) {
+            return;
+        }
+        Minecraft mc = Minecraft.getInstance();
+        if (mc.player == null) {
+            return;
+        }
+        skipFrontView(mc.options);
+    }
+
+    /** F5 cycles only first person <-> third person from behind. */
+    private static void skipFrontView(GameSettings o) {
+        if (o.getCameraType() == PointOfView.THIRD_PERSON_FRONT) {
+            o.setCameraType(PointOfView.FIRST_PERSON);
         }
     }
 
@@ -162,17 +170,6 @@ public class ClientEvents {
         } else if (target != null && target.isAlive()) {
             HandsNet.CHANNEL.sendToServer(new HandsPacket(HandsPacket.GRAB, h, target.getId(), false));
         }
-    }
-
-    private static Vector3d blockAim(Minecraft mc) {
-        RayTraceResult hit = mc.hitResult;
-        if (hit != null && hit.getType() == RayTraceResult.Type.BLOCK) {
-            Vector3d loc = hit.getLocation();
-            if (loc.distanceToSqr(mc.player.getEyePosition(1.0F)) <= 36.0D) {
-                return loc;
-            }
-        }
-        return null;
     }
 
     private static ItemEntity findTarget(Minecraft mc) {
@@ -250,64 +247,21 @@ public class ClientEvents {
         p.scale(x, y, z);
     }
 
-    /** Angles (degrees) between the resting hand direction and the direction to the aim point, or null. */
-    private static double[] aimAngles(ClientPlayerEntity player, float pt, Vector3d aim, double f) {
-        Vector3d eye = player.getEyePosition(pt);
-        double yaw = Math.toRadians(player.getViewYRot(pt));
-        double pitch = Math.toRadians(player.getViewXRot(pt));
-        double dx = aim.x - eye.x;
-        double dy = aim.y - eye.y;
-        double dz = aim.z - eye.z;
-        // camera axes in world space
-        double fx = -Math.sin(yaw) * Math.cos(pitch);
-        double fy = -Math.sin(pitch);
-        double fz = Math.cos(yaw) * Math.cos(pitch);
-        double rxw = -Math.cos(yaw);
-        double rzw = -Math.sin(yaw);
-        double ux = -Math.sin(yaw) * Math.sin(pitch);
-        double uy = Math.cos(pitch);
-        double uz = Math.cos(yaw) * Math.sin(pitch);
-        // aim point in view space (+x right, +y up, -z forward)
-        double vx = dx * rxw + dz * rzw;
-        double vy = dx * ux + dy * uy + dz * uz;
-        double vz = -(dx * fx + dy * fy + dz * fz);
-        if (-vz < 0.2D) {
-            return null;
-        }
-        double az = Math.toDegrees(Math.atan2(vx, -vz));
-        double el = Math.toDegrees(Math.atan2(vy, -vz));
-        double hAz = Math.toDegrees(Math.atan2(f * 0.50D, 0.75D));
-        double hEl = Math.toDegrees(Math.atan2(-0.45D, 0.75D));
-        double dAz = MathHelper.clamp(az - hAz, -75.0D, 75.0D);
-        double dEl = MathHelper.clamp(el - hEl, -45.0D, 45.0D);
-        return new double[]{dAz, dEl};
-    }
-
     private static void drawHand(Minecraft mc, ClientPlayerEntity player, MatrixStack ms,
                                  IRenderTypeBuffer buf, int light, int h, float pt) {
         boolean right = h == 1;
         double f = right ? 1.0D : -1.0D;
         float ext = MathHelper.lerp(pt, HandsState.prevExt[h], HandsState.ext[h]);
 
-        // where the hand turns: towards the aim point, or apart to the side when there is none
+        // the hands only move forward when extended; the only rotation is the lag behind head turns
         double yawRot = 0.0D;
         double pitchRot = 0.0D;
-        if (ext > 0.0F) {
-            double[] ang = HandsState.aim[h] != null ? aimAngles(player, pt, HandsState.aim[h], f) : null;
-            if (ang != null) {
-                yawRot = -ang[0] * ext;
-                pitchRot = ang[1] * ext;
-            } else {
-                yawRot = -f * SPREAD_DEG * ext;
-            }
-        }
-        // small lag when the head turns fast
         if (HandsState.smoothInit) {
             float sy = HandsState.prevSmoothYaw
                     + MathHelper.wrapDegrees(HandsState.smoothYaw - HandsState.prevSmoothYaw) * pt;
             float sp = MathHelper.lerp(pt, HandsState.prevSmoothPitch, HandsState.smoothPitch);
-            double lagYaw = MathHelper.clamp(MathHelper.wrapDegrees(player.getViewYRot(pt) - sy), -20.0F, 20.0F);
-            double lagPitch = MathHelper.clamp(player.getViewXRot(pt) - sp, -20.0F, 20.0F);
+            double lagYaw = MathHelper.clamp(MathHelper.wrapDegrees(player.getViewYRot(pt) - sy), -25.0F, 25.0F);
+            double lagPitch = MathHelper.clamp(player.getViewXRot(pt) - sp, -25.0F, 25.0F);
             yawRot += lagYaw * LAG_SCALE;
             pitchRot += lagPitch * LAG_SCALE;
         }
