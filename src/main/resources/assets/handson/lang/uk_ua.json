@@ -4,7 +4,7 @@
   "key.handson.right_hand": "Права рука",
   "key.handson.lock": "Замок хвату",
   "key.handson.toggle": "Перемкнути керування Hands On / ванільне (чити)",
-  "message.handson.mode_on": "Керування Hands On: УВІМК.",
+  "message.handson.mode_on": "Керування Hands On",
   "message.handson.mode_off": "Ванільне керування",
   "message.handson.need_cheats": "Для перемикання керування потрібні чити",
   "hud.handson.locked": "Хват замкнено",

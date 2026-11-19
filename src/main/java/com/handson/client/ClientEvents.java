@@ -37,7 +37,7 @@ public class ClientEvents {
     // hand pose tuning
     private static final double REACH_FWD = 0.25D;    // how far the hand moves forward when extended
     private static final double STRETCH = 0.25D;      // extra arm length at full extension (0.25 = +25%)
-    private static final double LAG_SCALE = 0.8D;     // how much the hands lag behind head turns
+    private static final double LAG_SCALE = 0.55D;    // how much the hands lag behind head turns
     private static final double ITEM_UP = 0.02D;      // item offset from the arm tip
     private static final double ITEM_FWD = -0.08D;
 
@@ -260,8 +260,8 @@ public class ClientEvents {
             float sy = HandsState.prevSmoothYaw
                     + MathHelper.wrapDegrees(HandsState.smoothYaw - HandsState.prevSmoothYaw) * pt;
             float sp = MathHelper.lerp(pt, HandsState.prevSmoothPitch, HandsState.smoothPitch);
-            double lagYaw = MathHelper.clamp(MathHelper.wrapDegrees(player.getViewYRot(pt) - sy), -25.0F, 25.0F);
-            double lagPitch = MathHelper.clamp(player.getViewXRot(pt) - sp, -25.0F, 25.0F);
+            double lagYaw = MathHelper.clamp(MathHelper.wrapDegrees(player.getViewYRot(pt) - sy), -18.0F, 18.0F);
+            double lagPitch = MathHelper.clamp(player.getViewXRot(pt) - sp, -18.0F, 18.0F);
             yawRot += lagYaw * LAG_SCALE;
             pitchRot += lagPitch * LAG_SCALE;
         }

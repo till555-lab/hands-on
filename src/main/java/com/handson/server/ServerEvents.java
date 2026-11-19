@@ -12,6 +12,7 @@ import net.minecraft.item.ItemStack;
 import net.minecraft.nbt.CompoundNBT;
 import net.minecraftforge.event.RegisterCommandsEvent;
 import net.minecraftforge.event.TickEvent;
+import net.minecraftforge.event.entity.item.ItemExpireEvent;
 import net.minecraftforge.event.entity.player.EntityItemPickupEvent;
 import net.minecraftforge.event.entity.player.PlayerEvent;
 import net.minecraftforge.eventbus.api.SubscribeEvent;
@@ -45,6 +46,13 @@ public class ServerEvents {
         if (MODE.contains(event.getPlayer().getUUID())) {
             event.setCanceled(true);
         }
+    }
+
+    /** Dropped items never despawn: the despawn is cancelled and the timer is reset. */
+    @SubscribeEvent
+    public void onItemExpire(ItemExpireEvent event) {
+        event.setExtraLife(6000);
+        event.setCanceled(true);
     }
 
     @SubscribeEvent
