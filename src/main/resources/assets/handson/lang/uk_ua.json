@@ -10,9 +10,15 @@
   "hud.handson.locked": "Хват замкнено",
   "key.handson.inventory": "Інвентар Hands On",
   "key.handson.inventory_alt": "Інвентар Hands On (додаткова)",
-  "hint.handson.hands": "%s / %s: витягнути ліву / праву руку, відпустити: взяти або кинути",
-  "hint.handson.lock": "%s: замкнути хват (предмети не випадуть)",
+  "hint.handson.hands": "%s / %s: ліва / права рука",
+  "hint.handson.lock": "%s: замкнути хват",
   "label.handson.left_hand": "Ліва рука",
   "label.handson.right_hand": "Права рука",
-  "hud.handson.unlocked": "Хват відкрито"
+  "hud.handson.unlocked": "Хват відкрито",
+  "hint.handson.hands.more": "(утримуй, щоб витягнути, відпусти: взяти або кинути)",
+  "hint.handson.lock.more": "(предмети не випадуть)",
+  "hint.handson.inventory": "%s / %s: інвентар",
+  "hint.handson.inventory.more": "(слоти навколо гравця)",
+  "hint.handson.take": "Відпусти: взяти предмет",
+  "hint.handson.slot": "Відпусти: покласти в слот або взяти зі слота"
 }

@@ -10,9 +10,15 @@
   "hud.handson.locked": "Хват заперт",
   "key.handson.inventory": "Инвентарь Hands On",
   "key.handson.inventory_alt": "Инвентарь Hands On (дополнительная)",
-  "hint.handson.hands": "%s / %s: вытянуть левую / правую руку, отпустить: взять или бросить",
-  "hint.handson.lock": "%s: запереть хват (предметы не выпадут)",
+  "hint.handson.hands": "%s / %s: левая / правая рука",
+  "hint.handson.lock": "%s: запереть хват",
   "label.handson.left_hand": "Левая рука",
   "label.handson.right_hand": "Правая рука",
-  "hud.handson.unlocked": "Хват открыт"
+  "hud.handson.unlocked": "Хват открыт",
+  "hint.handson.hands.more": "(удерживай, чтобы вытянуть, отпусти: взять или бросить)",
+  "hint.handson.lock.more": "(предметы не выпадут)",
+  "hint.handson.inventory": "%s / %s: инвентарь",
+  "hint.handson.inventory.more": "(слоты вокруг игрока)",
+  "hint.handson.take": "Отпусти: взять предмет",
+  "hint.handson.slot": "Отпусти: положить в слот или взять из слота"
 }

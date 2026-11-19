@@ -6,12 +6,14 @@ import com.handson.net.HandsPacket;
 import com.mojang.blaze3d.matrix.MatrixStack;
 import com.mojang.blaze3d.systems.RenderSystem;
 import com.mojang.blaze3d.vertex.IVertexBuilder;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 import net.minecraft.client.GameSettings;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.entity.player.ClientPlayerEntity;
 import net.minecraft.client.gui.AbstractGui;
+import net.minecraft.client.gui.screen.Screen;
 import net.minecraft.client.gui.screen.inventory.InventoryScreen;
 import net.minecraft.client.gui.widget.Widget;
 import net.minecraft.client.renderer.IRenderTypeBuffer;
@@ -19,6 +21,7 @@ import net.minecraft.client.renderer.RenderType;
 import net.minecraft.client.renderer.WorldRenderer;
 import net.minecraft.client.renderer.entity.PlayerRenderer;
 import net.minecraft.client.renderer.model.ItemCameraTransforms;
+import net.minecraft.client.renderer.texture.OverlayTexture;
 import net.minecraft.client.settings.KeyBinding;
 import net.minecraft.client.settings.PointOfView;
 import net.minecraft.entity.item.ItemEntity;
@@ -28,6 +31,7 @@ import net.minecraft.util.IReorderingProcessor;
 import net.minecraft.util.math.AxisAlignedBB;
 import net.minecraft.util.math.MathHelper;
 import net.minecraft.util.math.vector.Vector3d;
+import net.minecraft.util.math.vector.Vector3f;
 import net.minecraft.util.text.TranslationTextComponent;
 import net.minecraftforge.client.event.GuiContainerEvent;
 import net.minecraftforge.client.event.InputEvent;
@@ -48,8 +52,13 @@ public class ClientEvents {
     private static final double ITEM_UP = 0.02D;      // item offset from the arm tip
     private static final double ITEM_FWD = -0.08D;
 
+    // ring inventory
+    private static final double RING_R = 1.25D;       // radius of the ring
+    private static final double PANEL = 0.25D;        // half size of a slot frame
+
     private boolean toggleWas = false;
     private boolean lockWas = false;
+    private boolean invWas = false;
 
     // ---------------------------------------------------------------- tick
 
@@ -63,6 +72,7 @@ public class ClientEvents {
             HandsState.reset();
             toggleWas = false;
             lockWas = false;
+            invWas = false;
             return;
         }
 
@@ -112,22 +122,36 @@ public class ClientEvents {
         }
         lockWas = lockNow;
 
+        // G / Z open and close the ring inventory
+        boolean invNow = mc.screen == null && (HandKeys.INVENTORY.isDown() || HandKeys.INVENTORY_ALT.isDown());
+        if (invNow && !invWas) {
+            HandsState.invOpen = !HandsState.invOpen;
+            if (HandsState.invOpen) {
+                HandsState.anchorYaw = mc.player.yRot;
+            }
+        }
+        invWas = invNow;
+
         for (int h = 0; h < 2; h++) {
             KeyBinding key = h == 0 ? HandKeys.LEFT : HandKeys.RIGHT;
             boolean now = mc.screen == null && key.isDown();
             boolean was = HandsState.down[h];
             ItemEntity prevTarget = HandsState.target[h];
+            int prevRing = HandsState.ringHover[h];
 
             HandsState.prevExt[h] = HandsState.ext[h];
             if (now) {
                 HandsState.ext[h] = Math.min(1.0F, HandsState.ext[h] + SPEED);
-                HandsState.target[h] = findTarget(mc);
+                int ringSlot = HandsState.invOpen ? findRingSlot(mc) : -1;
+                HandsState.ringHover[h] = ringSlot;
+                HandsState.target[h] = ringSlot >= 0 ? null : findTarget(mc);
             } else {
                 HandsState.ext[h] = Math.max(0.0F, HandsState.ext[h] - SPEED);
+                HandsState.ringHover[h] = -1;
                 HandsState.target[h] = null;
             }
             if (was && !now) {
-                onRelease(mc, h, prevTarget);
+                onRelease(mc, h, prevTarget, prevRing);
             }
             HandsState.down[h] = now;
         }
@@ -167,7 +191,11 @@ public class ClientEvents {
         }
     }
 
-    private void onRelease(Minecraft mc, int h, ItemEntity target) {
+    private void onRelease(Minecraft mc, int h, ItemEntity target, int ringSlot) {
+        if (ringSlot >= 0) {
+            HandsNet.CHANNEL.sendToServer(new HandsPacket(HandsPacket.RING, h, ringSlot, false));
+            return;
+        }
         ItemStack held = HandSlots.get(mc.player, h);
         if (!held.isEmpty()) {
             if (!HandsState.locked) {
@@ -312,6 +340,128 @@ public class ClientEvents {
         }
     }
 
+    // ------------------------------------------------------ ring inventory
+
+    /** Returns {x, y, z, yaw, tilt} of ring slot i. The ring follows the player but keeps its own direction. */
+    private static double[] ringSlot(ClientPlayerEntity p, float pt, int i) {
+        double px = p.xo + (p.getX() - p.xo) * pt;
+        double py = p.yo + (p.getY() - p.yo) * pt;
+        double pz = p.zo + (p.getZ() - p.zo) * pt;
+        double by = py + p.getEyeHeight() - 0.4D;
+        double yaw;
+        double dy = 0.0D;
+        double r = RING_R;
+        double tilt = 0.0D;
+        if (i < 8) {
+            yaw = HandsState.anchorYaw + i * 45.0D;
+        } else {
+            int k = (i - 8) % 4;
+            yaw = HandsState.anchorYaw + k * 90.0D;
+            r = RING_R - 0.15D;
+            if (i < 12) {
+                dy = 0.62D;
+                tilt = -35.0D;
+            } else {
+                dy = -0.62D;
+                tilt = 35.0D;
+            }
+        }
+        double ang = Math.toRadians(yaw);
+        return new double[] {px - Math.sin(ang) * r, by + dy, pz + Math.cos(ang) * r, yaw, tilt};
+    }
+
+    /** The ring slot the player looks at, or -1. */
+    private static int findRingSlot(Minecraft mc) {
+        ClientPlayerEntity p = mc.player;
+        if (!HandSlots.ringReady(p)) {
+            return -1;
+        }
+        Vector3d eye = p.getEyePosition(1.0F);
+        Vector3d look = p.getViewVector(1.0F);
+        int best = -1;
+        double bestD = 0.3D;
+        for (int i = 0; i < HandSlots.RING_COUNT; i++) {
+            double[] s = ringSlot(p, 1.0F, i);
+            Vector3d v = new Vector3d(s[0] - eye.x, s[1] - eye.y, s[2] - eye.z);
+            double t = v.dot(look);
+            if (t <= 0.0D) {
+                continue;
+            }
+            double d = v.subtract(look.scale(t)).length();
+            if (d < bestD) {
+                bestD = d;
+                best = i;
+            }
+        }
+        return best;
+    }
+
+    private static void ringTransform(MatrixStack ms, double[] s, Vector3d cam) {
+        ms.translate(s[0] - cam.x, s[1] - cam.y, s[2] - cam.z);
+        ms.mulPose(Vector3f.YP.rotationDegrees((float) -s[3]));
+        ms.mulPose(Vector3f.XP.rotationDegrees((float) s[4]));
+    }
+
+    private static void drawRing(Minecraft mc, MatrixStack ms, IRenderTypeBuffer.Impl buf, Vector3d cam, float pt) {
+        ClientPlayerEntity p = mc.player;
+        if (p == null || !HandSlots.ringReady(p)) {
+            return;
+        }
+        // frames (only the outline)
+        IVertexBuilder lines = buf.getBuffer(RenderType.lines());
+        for (int i = 0; i < HandSlots.RING_COUNT; i++) {
+            float r = 0.85F;
+            float g = 0.85F;
+            float b = 0.85F;
+            if (HandsState.ringHover[1] == i) {
+                r = 1.0F;
+                g = 0.2F;
+                b = 0.2F;
+            } else if (HandsState.ringHover[0] == i) {
+                r = 0.25F;
+                g = 0.5F;
+                b = 1.0F;
+            }
+            double[] s = ringSlot(p, pt, i);
+            ms.pushPose();
+            ringTransform(ms, s, cam);
+            WorldRenderer.renderLineBox(ms, lines, -PANEL, -PANEL, -0.01D, PANEL, PANEL, 0.01D, r, g, b, 0.9F);
+            WorldRenderer.renderLineBox(ms, lines, -PANEL - 0.01D, -PANEL - 0.01D, -0.01D,
+                    PANEL + 0.01D, PANEL + 0.01D, 0.01D, r, g, b, 0.9F);
+            ms.popPose();
+        }
+        buf.endBatch(RenderType.lines());
+
+        // items and counts
+        for (int i = 0; i < HandSlots.RING_COUNT; i++) {
+            ItemStack st = HandSlots.getRing(p, i);
+            if (st.isEmpty()) {
+                continue;
+            }
+            double[] s = ringSlot(p, pt, i);
+            ms.pushPose();
+            ringTransform(ms, s, cam);
+            ms.mulPose(Vector3f.YP.rotationDegrees(180.0F));
+            ms.scale(0.4F, 0.4F, 0.4F);
+            mc.getItemRenderer().renderStatic(st, ItemCameraTransforms.TransformType.FIXED,
+                    15728880, OverlayTexture.NO_OVERLAY, ms, buf);
+            ms.popPose();
+
+            if (st.getCount() > 1) {
+                String text = String.valueOf(st.getCount());
+                ms.pushPose();
+                ms.translate(s[0] - cam.x, s[1] - cam.y - 0.22D, s[2] - cam.z);
+                ms.mulPose(mc.getEntityRenderDispatcher().cameraOrientation());
+                ms.scale(-0.02F, -0.02F, 0.02F);
+                float w = mc.font.width(text);
+                mc.font.drawInBatch(text, -w / 2.0F, 0.0F, 0xFFFFFFFF, false,
+                        ms.last().pose(), buf, true, 0, 15728880);
+                ms.popPose();
+            }
+        }
+        buf.endBatch();
+    }
+
     // -------------------------------------------------------- highlight
 
     @SubscribeEvent
@@ -326,6 +476,10 @@ public class ClientEvents {
         MatrixStack ms = event.getMatrixStack();
         Vector3d cam = mc.gameRenderer.getMainCamera().getPosition();
         IRenderTypeBuffer.Impl buf = mc.renderBuffers().bufferSource();
+
+        if (HandsState.invOpen) {
+            drawRing(mc, ms, buf, cam, event.getPartialTicks());
+        }
 
         for (int h = 0; h < 2; h++) {
             ItemEntity t = HandsState.target[h];
@@ -391,6 +545,15 @@ public class ClientEvents {
             ms.scale(0.75F, 0.75F, 1.0F);
             mc.font.drawShadow(ms, label, -mc.font.width(label) / 2.0F, 0.0F, 0xFFFFFF);
             ms.popPose();
+        }
+        if (HandSlots.ringReady(mc.player)) {
+            for (int i = 0; i < HandSlots.RING_COUNT; i++) {
+                int x = screen.getGuiLeft() + HandSlots.SCREEN_RING_X + (i % 4) * 18;
+                int y = screen.getGuiTop() + HandSlots.SCREEN_RING_Y + (i / 4) * 18;
+                AbstractGui.fill(ms, x - 1, y - 1, x + 17, y + 17, 0xFF373737);
+                AbstractGui.fill(ms, x, y, x + 17, y + 17, 0xFFFFFFFF);
+                AbstractGui.fill(ms, x, y, x + 16, y + 16, 0xFF8B8B8B);
+            }
         }
     }
 
@@ -477,19 +640,48 @@ public class ClientEvents {
         AbstractGui.blit(ms, x + 18, y - 3, 0, 181.0F, 0.0F, 1, 22, 256, 256);
     }
 
-    /** Small hints in the bottom left corner. */
+    private static String tr(String key, Object... args) {
+        return new TranslationTextComponent(key, args).getString();
+    }
+
+    /** Small hints in the bottom left corner. Shift shows the extended versions. */
     private static void drawHints(Minecraft mc, MatrixStack ms, int hgt) {
-        String[] lines = {
-            new TranslationTextComponent("hint.handson.hands",
-                    HandKeys.LEFT.getTranslatedKeyMessage(), HandKeys.RIGHT.getTranslatedKeyMessage()).getString(),
-            new TranslationTextComponent("hint.handson.lock",
-                    HandKeys.LOCK.getTranslatedKeyMessage()).getString()
-        };
-        int y = hgt - 6 - 10 * lines.length;
-        for (String line : lines) {
-            mc.font.drawShadow(ms, line, 6.0F, (float) y, 0xCCCCCC);
-            y += 10;
+        boolean more = Screen.hasShiftDown();
+        List<String> lines = new ArrayList<>();
+
+        boolean ground = false;
+        boolean slot = false;
+        for (int h = 0; h < 2; h++) {
+            if (HandsState.target[h] != null) {
+                ground = true;
+            }
+            if (HandsState.ringHover[h] >= 0) {
+                slot = true;
+            }
         }
+        if (slot) {
+            lines.add(tr("hint.handson.slot"));
+        } else if (ground) {
+            lines.add(tr("hint.handson.take"));
+        }
+
+        lines.add(tr("hint.handson.hands", HandKeys.LEFT.getTranslatedKeyMessage(),
+                HandKeys.RIGHT.getTranslatedKeyMessage()) + (more ? " " + tr("hint.handson.hands.more") : ""));
+        lines.add(tr("hint.handson.lock", HandKeys.LOCK.getTranslatedKeyMessage())
+                + (more ? " " + tr("hint.handson.lock.more") : ""));
+        lines.add(tr("hint.handson.inventory", HandKeys.INVENTORY.getTranslatedKeyMessage(),
+                HandKeys.INVENTORY_ALT.getTranslatedKeyMessage())
+                + (more ? " " + tr("hint.handson.inventory.more") : ""));
+
+        float scale = 0.7F;
+        ms.pushPose();
+        ms.scale(scale, scale, 1.0F);
+        float y = (hgt - 5) / scale - 9.0F * lines.size();
+        for (String line : lines) {
+            mc.font.drawShadow(ms, line, 6.0F / scale, y, 0xBBBBBB);
+            y += 9.0F;
+        }
+        ms.popPose();
     }
 
     private static void drawHeld(Minecraft mc, MatrixStack ms, ItemStack stack, int x, int y, boolean right) {

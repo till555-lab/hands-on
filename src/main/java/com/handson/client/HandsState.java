@@ -12,6 +12,11 @@ public class HandsState {
     public static final float[] prevExt = new float[2];
     public static final ItemEntity[] target = new ItemEntity[2];
 
+    // ring inventory around the player
+    public static boolean invOpen = false;
+    public static float anchorYaw = 0.0F;
+    public static final int[] ringHover = {-1, -1};
+
     // smoothed head rotation, used for the lag of the hands
     public static boolean smoothInit = false;
     public static float smoothYaw = 0.0F;
@@ -31,7 +36,9 @@ public class HandsState {
             ext[i] = 0.0F;
             prevExt[i] = 0.0F;
             target[i] = null;
+            ringHover[i] = -1;
         }
+        invOpen = false;
         smoothInit = false;
     }
 }

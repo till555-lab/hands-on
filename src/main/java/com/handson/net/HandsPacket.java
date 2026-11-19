@@ -25,6 +25,8 @@ public class HandsPacket {
     public static final int DROP = 2;
     /** Server to client: set the control mode. */
     public static final int SET_MODE = 3;
+    /** Client to server: put the item of the given hand into the ring slot (or take it from the slot). */
+    public static final int RING = 4;
 
     public final int action;
     public final int hand; // 0 = left hand slot, 1 = right hand slot
@@ -82,9 +84,41 @@ public class HandsPacket {
                 grab(player, h, p.id);
             } else if (p.action == DROP) {
                 drop(player, h);
+            } else if (p.action == RING) {
+                ringMove(player, h, p.id);
             }
         });
         ctx.get().setPacketHandled(true);
+    }
+
+    private static void ringMove(ServerPlayerEntity player, int h, int slot) {
+        if (slot < 0 || slot >= HandSlots.RING_COUNT || !HandSlots.ringReady(player)) {
+            return;
+        }
+        ItemStack hand = HandSlots.get(player, h);
+        ItemStack in = HandSlots.getRing(player, slot);
+        if (hand.isEmpty() && in.isEmpty()) {
+            return;
+        }
+        if (hand.isEmpty()) {
+            HandSlots.set(player, h, in.copy());
+            HandSlots.setRing(player, slot, ItemStack.EMPTY);
+        } else if (in.isEmpty()) {
+            HandSlots.setRing(player, slot, hand.copy());
+            HandSlots.set(player, h, ItemStack.EMPTY);
+        } else if (ItemStack.isSame(hand, in) && ItemStack.tagMatches(hand, in)
+                && in.getCount() < in.getMaxStackSize()) {
+            int move = Math.min(in.getMaxStackSize() - in.getCount(), hand.getCount());
+            in.grow(move);
+            hand.shrink(move);
+            HandSlots.setRing(player, slot, in);
+            HandSlots.set(player, h, hand.isEmpty() ? ItemStack.EMPTY : hand);
+        } else {
+            ItemStack a = hand.copy();
+            ItemStack b = in.copy();
+            HandSlots.set(player, h, b);
+            HandSlots.setRing(player, slot, a);
+        }
     }
 
     private static void grab(ServerPlayerEntity player, int h, int entityId) {

@@ -2,6 +2,7 @@ package com.handson.server;
 
 import com.handson.HandSlots;
 import com.handson.HandsInventory;
+import com.handson.RingInventory;
 import com.handson.net.HandsNet;
 import com.handson.net.HandsPacket;
 import java.util.Arrays;
@@ -82,8 +83,10 @@ public class ServerEvents {
     @SubscribeEvent
     public void onClone(PlayerEvent.Clone event) {
         CompoundNBT old = event.getOriginal().getPersistentData();
-        if (old.contains(HandsInventory.TAG, 10)) {
-            event.getPlayer().getPersistentData().put(HandsInventory.TAG, old.getCompound(HandsInventory.TAG).copy());
+        for (String tag : new String[] {HandsInventory.TAG, RingInventory.TAG}) {
+            if (old.contains(tag, 10)) {
+                event.getPlayer().getPersistentData().put(tag, old.getCompound(tag).copy());
+            }
         }
     }
 
@@ -102,6 +105,13 @@ public class ServerEvents {
             if (!stack.isEmpty()) {
                 player.drop(stack.copy(), true, false);
                 HandSlots.set(player, h, ItemStack.EMPTY);
+            }
+        }
+        for (int i = 0; i < HandSlots.RING_COUNT; i++) {
+            ItemStack stack = HandSlots.getRing(player, i);
+            if (!stack.isEmpty()) {
+                player.drop(stack.copy(), true, false);
+                HandSlots.setRing(player, i, ItemStack.EMPTY);
             }
         }
     }
@@ -125,6 +135,11 @@ public class ServerEvents {
         applyDurability(inv.armor, on);
         applyDurability(inv.offhand, on);
         applyDurability(Arrays.asList(HandSlots.get(event.player, 0), HandSlots.get(event.player, 1)), on);
+        ItemStack[] ring = new ItemStack[HandSlots.RING_COUNT];
+        for (int i = 0; i < ring.length; i++) {
+            ring[i] = HandSlots.getRing(event.player, i);
+        }
+        applyDurability(Arrays.asList(ring), on);
     }
 
     /** In Hands On mode damageable items become unbreakable; the marker is removed again afterwards. */
