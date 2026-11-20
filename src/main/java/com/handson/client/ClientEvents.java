@@ -139,8 +139,9 @@ public class ClientEvents {
         boolean invNow = mc.screen == null && (HandKeys.INVENTORY.isDown() || HandKeys.INVENTORY_ALT.isDown());
         if (invNow && !invWas) {
             HandsState.invOpen = !HandsState.invOpen;
-            if (HandsState.invOpen) {
-                HandsState.anchorYaw = mc.player.yRot;
+            if (HandsState.invOpen && !HandsState.anchorSet) {
+                HandsState.anchorYaw = Math.round(mc.player.yRot / 90.0F) * 90.0F;
+                HandsState.anchorSet = true;
             }
         }
         invWas = invNow;
@@ -355,13 +356,13 @@ public class ClientEvents {
 
     // ------------------------------------------------------ ring inventory
 
-    /** Returns {x, y, z, yaw, tilt} of ring slot i. The ring follows the body of the player, not the camera. */
+    /** Returns {x, y, z, yaw, tilt} of ring slot i. The ring follows the position of the player, but its direction is fixed. */
     private static double[] ringSlot(ClientPlayerEntity p, float pt, int i) {
         double px = p.xo + (p.getX() - p.xo) * pt;
         double py = p.yo + (p.getY() - p.yo) * pt;
         double pz = p.zo + (p.getZ() - p.zo) * pt;
         double by = py + 1.22D; // fixed height, it does not change when sneaking
-        double body = MathHelper.rotLerp(pt, p.yBodyRotO, p.yBodyRot);
+        double body = HandsState.anchorYaw;
         double yaw;
         double dy = 0.0D;
         double r = RING_R;
@@ -379,12 +380,18 @@ public class ClientEvents {
                 dy = -0.62D;
                 tilt = 35.0D;
             }
-        } else {
+        } else if (i < 20) {
             int k = i - 16;
             yaw = body + (1 + 2 * k) * 45.0D;
             r = RING_R - 0.15D;
             dy = -0.62D;
             tilt = 35.0D;
+        } else {
+            int k = i - 20;
+            yaw = body + (1 + 2 * k) * 45.0D;
+            r = RING_R - 0.15D;
+            dy = 0.62D;
+            tilt = -35.0D;
         }
         double ang = Math.toRadians(yaw);
         return new double[] {px - Math.sin(ang) * r, by + dy, pz + Math.cos(ang) * r, yaw, tilt};
@@ -676,7 +683,7 @@ public class ClientEvents {
 
     /** Small hints in the bottom left corner. Shift shows the extended versions. */
     private static void drawHints(Minecraft mc, MatrixStack ms, int hgt) {
-        boolean more = Screen.hasShiftDown();
+        boolean more = Screen.hasShiftDown() || mc.options.keyShift.isDown();
         List<String> lines = new ArrayList<>();
 
         boolean ground = false;

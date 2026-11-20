@@ -15,6 +15,8 @@ public class HandsState {
     // ring inventory around the player
     public static boolean invOpen = false;
     public static float anchorYaw = 0.0F;
+    /** The direction of the ring is remembered once per session (until the player leaves the world). */
+    public static boolean anchorSet = false;
     public static final int[] ringHover = {-1, -1};
 
     // smoothed head rotation, used for the lag of the hands
@@ -25,6 +27,7 @@ public class HandsState {
     public static float prevSmoothPitch = 0.0F;
 
     public static void reset() {
+        anchorSet = false;
         modeOn = false;
         locked = false;
         clearHands();
