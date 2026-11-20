@@ -7,16 +7,15 @@
   "message.handson.mode_on": "Керування Hands On",
   "message.handson.mode_off": "Ванільне керування",
   "message.handson.need_cheats": "Для перемикання керування потрібні чити",
-  "hud.handson.locked": "Хват замкнено",
   "key.handson.inventory": "Інвентар Hands On",
   "key.handson.inventory_alt": "Інвентар Hands On (додаткова)",
   "hint.handson.hands": "%s / %s: ліва / права рука",
-  "hint.handson.lock": "%s: замкнути хват",
+  "hint.handson.lock": "%s: не випускати",
+  "hint.handson.lock.active": "[УВМ]",
   "label.handson.left_hand": "Ліва рука",
   "label.handson.right_hand": "Права рука",
-  "hud.handson.unlocked": "Хват відкрито",
   "hint.handson.hands.more": "(утримуй, щоб витягнути, відпусти: взяти, кинути або вхопитися за блок)",
-  "hint.handson.lock.more": "(предмети не випадуть)",
+  "hint.handson.lock.more": "(предмети не випадуть з рук)",
   "hint.handson.inventory": "%s / %s: інвентар",
   "hint.handson.inventory.more": "(слоти навколо гравця)",
   "hint.handson.take": "Відпусти: взяти предмет",
@@ -27,5 +26,5 @@
   "hint.handson.grab": "Відпусти: вхопитися за блок",
   "hint.handson.grab.more": "(лише порожньою рукою, натисни кнопку ще раз, щоб відпустити)",
   "hint.handson.release": "%s: відпустити обидві руки",
-  "hint.handson.release.more": "(стрибок або погляд униз підтягують, двома руками сильніше)"
+  "hint.handson.release.more": "(стрибок підтягує, двома руками сильніше)"
 }

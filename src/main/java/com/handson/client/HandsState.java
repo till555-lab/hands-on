@@ -2,6 +2,7 @@ package com.handson.client;
 
 import net.minecraft.entity.item.ItemEntity;
 import net.minecraft.util.math.BlockRayTraceResult;
+import net.minecraft.util.math.vector.Vector3d;
 
 /** Client-side state of the two hands. Index 0 = left hand, 1 = right hand. */
 public class HandsState {
@@ -17,6 +18,8 @@ public class HandsState {
     public static final BlockRayTraceResult[] aim = new BlockRayTraceResult[2];
     /** The block point a hand holds on to (null = the hand is not holding on). */
     public static final BlockRayTraceResult[] grip = new BlockRayTraceResult[2];
+    /** World-space position of the grip point (cached for rendering). */
+    public static final Vector3d[] gripPoint = new Vector3d[2];
     /** The press that let go of a grip is used up until the button is released. */
     public static final boolean[] consumed = new boolean[2];
 
@@ -47,6 +50,7 @@ public class HandsState {
             target[i] = null;
             aim[i] = null;
             grip[i] = null;
+            gripPoint[i] = null;
             consumed[i] = false;
             ringHover[i] = -1;
         }

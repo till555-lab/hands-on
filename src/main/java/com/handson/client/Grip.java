@@ -12,21 +12,19 @@ import net.minecraft.util.math.vector.Vector3d;
 
 /** Holding on to blocks with the hands: finding the point, holding the player and pulling up. */
 public class Grip {
-    /** How far a hand reaches, measured from the shoulders (blocks). Also the length of the arm when hanging. */
+    /** How far a hand reaches, measured from the shoulders (blocks). Also the rope length when hanging. */
     public static final double REACH = 1.5D;
     private static final double SHOULDER = 1.35D;   // height of the shoulders above the feet
     private static final double PULL_TWO = 0.13D;   // climbing speed per tick with two hands
     private static final double PULL_ONE = 0.045D;  // climbing speed per tick with one hand
-    private static final float FLICK = 3.0F;        // degrees per tick of a quick camera move down
-    private static final int FLICK_TICKS = 5;       // how long such a move pulls
-
-    private static int pullTicks = 0;
-    private static float prevPitch = 0.0F;
-    private static boolean pitchInit = false;
+    // how far above the anchor the player can pull up to (shoulders relative to anchor point)
+    private static final double PULL_ABOVE = 0.5D;
+    // spring strength pulling player toward the rope length when further away
+    private static final double SPRING = 0.5D;
+    // damping applied to velocity component along the rope when swinging
+    private static final double DAMP = 0.7D;
 
     public static void reset() {
-        pullTicks = 0;
-        pitchInit = false;
     }
 
     public static void releaseAll() {
@@ -58,10 +56,6 @@ public class Grip {
     /** Called every tick in Hands On mode. */
     public static void tick(Minecraft mc) {
         ClientPlayerEntity p = mc.player;
-        float pitch = p.xRot;
-        boolean flick = pitchInit && pitch - prevPitch > FLICK;
-        prevPitch = pitch;
-        pitchInit = true;
 
         boolean ladder = p.onClimbable();
         int n = 0;
@@ -87,40 +81,49 @@ public class Grip {
             n++;
         }
         if (n == 0) {
-            pullTicks = 0;
             return;
         }
+        // average anchor point (or single point if only one hand)
         Vector3d anchor = new Vector3d(ax / n, ay / n, az / n);
         Vector3d sh = shoulder(p);
         Vector3d d = anchor.subtract(sh);
         double dist = d.length();
         Vector3d mv = p.getDeltaMovement();
 
-        // pulling up: jump in the air, or a quick camera move down
-        if (flick) {
-            pullTicks = FLICK_TICKS;
-        }
-        boolean pulling = (mc.options.keyJump.isDown() && !p.isOnGround()) || pullTicks > 0;
-        if (pullTicks > 0) {
-            pullTicks--;
-        }
-        if (pulling && sh.y < anchor.y - 0.15D) {
+        // --- pull up with jump key (works both on ground and in air) ---
+        boolean jumpDown = mc.options.keyJump.isDown();
+        if (jumpDown && sh.y < anchor.y + PULL_ABOVE) {
             double up = n >= 2 ? PULL_TWO : PULL_ONE;
+            // prevent vanilla jump from firing: cancel upward bump on ground
             mv = new Vector3d(mv.x, Math.max(mv.y, up), mv.z);
         }
 
-        // the arms are a rope of a fixed length: no moving further away than the reach
+        // --- rope constraint: keep player within reach distance ---
         if (dist > REACH - 0.02D && dist > 0.001D) {
             Vector3d dir = d.scale(1.0D / dist);
+            // remove velocity component moving away from anchor
             double along = mv.dot(dir);
             if (along < 0.0D) {
-                mv = mv.subtract(dir.scale(along));
+                // damp swing instead of hard-cancelling
+                mv = mv.subtract(dir.scale(along * DAMP));
             }
+            // spring back toward rope length if past it
             if (dist > REACH) {
-                mv = mv.add(dir.scale(Math.min((dist - REACH) * 0.6D, 0.4D)));
+                double over = dist - REACH;
+                mv = mv.add(dir.scale(Math.min(over * SPRING, 0.3D)));
             }
         }
+
         p.setDeltaMovement(mv);
         p.fallDistance = 0.0F;
+
+        // cancel vanilla jump impulse when gripping so player doesn't bounce
+        if (jumpDown && p.isOnGround()) {
+            // absorb the upward impulse vanilla would add this tick
+            Vector3d cur = p.getDeltaMovement();
+            if (cur.y > 0.42D) {
+                p.setDeltaMovement(cur.x, Math.min(cur.y, n >= 2 ? PULL_TWO : PULL_ONE), cur.z);
+            }
+        }
     }
 }
