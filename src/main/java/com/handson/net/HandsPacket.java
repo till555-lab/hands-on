@@ -27,6 +27,8 @@ public class HandsPacket {
     public static final int SET_MODE = 3;
     /** Client to server: put the item of the given hand into the ring slot (or take it from the slot). */
     public static final int RING = 4;
+    /** Server to client: direction of the ring inventory in degrees (id). */
+    public static final int SET_ANCHOR = 5;
 
     public final int action;
     public final int hand; // 0 = left hand slot, 1 = right hand slot
@@ -62,6 +64,8 @@ public class HandsPacket {
                 // received on the client
                 if (p.action == SET_MODE) {
                     DistExecutor.unsafeRunWhenOn(Dist.CLIENT, () -> () -> ClientHooks.applyMode(p.flag));
+                } else if (p.action == SET_ANCHOR) {
+                    DistExecutor.unsafeRunWhenOn(Dist.CLIENT, () -> () -> ClientHooks.applyAnchor(p.id));
                 }
                 return;
             }

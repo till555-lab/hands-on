@@ -32,6 +32,9 @@ public class ServerEvents {
 
     private static final String TAG_UNBREAKABLE = "Unbreakable";
     private static final String TAG_TEMP = "HandsOnTemp";
+    /** Saved in the persistent data of the player: the control mode and the direction of the ring. */
+    public static final String TAG_MODE = "HandsOnMode";
+    public static final String TAG_ANCHOR = "HandsOnRingYaw";
 
     /** Sets the control mode for a player and tells the client about it. */
     public static void setMode(ServerPlayerEntity player, boolean on) {
@@ -40,8 +43,22 @@ public class ServerEvents {
         } else {
             MODE.remove(player.getUUID());
         }
+        player.getPersistentData().putBoolean(TAG_MODE, on);
         HandsNet.CHANNEL.send(PacketDistributor.PLAYER.with(() -> player),
                 new HandsPacket(HandsPacket.SET_MODE, 0, 0, on));
+    }
+
+    /** Sends the saved ring direction and control mode to the client. The direction is chosen once, on the first join. */
+    public static void syncToClient(ServerPlayerEntity player) {
+        CompoundNBT data = player.getPersistentData();
+        if (!data.contains(TAG_ANCHOR, 3)) {
+            data.putInt(TAG_ANCHOR, Math.floorMod(Math.round(player.yRot / 90.0F) * 90, 360));
+        }
+        HandsNet.CHANNEL.send(PacketDistributor.PLAYER.with(() -> player),
+                new HandsPacket(HandsPacket.SET_ANCHOR, 0, data.getInt(TAG_ANCHOR), false));
+        if (data.getBoolean(TAG_MODE)) {
+            setMode(player, true);
+        }
     }
 
     @SubscribeEvent
@@ -88,6 +105,12 @@ public class ServerEvents {
                 event.getPlayer().getPersistentData().put(tag, old.getCompound(tag).copy());
             }
         }
+        if (old.contains(TAG_ANCHOR, 3)) {
+            event.getPlayer().getPersistentData().putInt(TAG_ANCHOR, old.getInt(TAG_ANCHOR));
+        }
+        if (old.contains(TAG_MODE)) {
+            event.getPlayer().getPersistentData().putBoolean(TAG_MODE, old.getBoolean(TAG_MODE));
+        }
     }
 
     /** Items in the hand slots drop on death unless keepInventory is on. */
@@ -117,6 +140,13 @@ public class ServerEvents {
     }
 
     @SubscribeEvent
+    public void onLogin(PlayerEvent.PlayerLoggedInEvent event) {
+        if (event.getPlayer() instanceof ServerPlayerEntity) {
+            syncToClient((ServerPlayerEntity) event.getPlayer());
+        }
+    }
+
+    @SubscribeEvent
     public void onLogout(PlayerEvent.PlayerLoggedOutEvent event) {
         MODE.remove(event.getPlayer().getUUID());
     }
@@ -125,6 +155,10 @@ public class ServerEvents {
     public void onPlayerTick(TickEvent.PlayerTickEvent event) {
         if (event.phase != TickEvent.Phase.END || event.player.level.isClientSide) {
             return;
+        }
+        // one more sync a second after joining, in case the first packet came before the client was ready
+        if (event.player.tickCount == 20 && event.player instanceof ServerPlayerEntity) {
+            syncToClient((ServerPlayerEntity) event.player);
         }
         if (event.player.tickCount % 10 != 0) {
             return;

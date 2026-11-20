@@ -139,10 +139,6 @@ public class ClientEvents {
         boolean invNow = mc.screen == null && (HandKeys.INVENTORY.isDown() || HandKeys.INVENTORY_ALT.isDown());
         if (invNow && !invWas) {
             HandsState.invOpen = !HandsState.invOpen;
-            if (HandsState.invOpen && !HandsState.anchorSet) {
-                HandsState.anchorYaw = Math.round(mc.player.yRot / 90.0F) * 90.0F;
-                HandsState.anchorSet = true;
-            }
         }
         invWas = invNow;
 
