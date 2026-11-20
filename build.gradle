@@ -11,7 +11,7 @@ buildscript {
 apply plugin: 'net.minecraftforge.gradle'
 apply plugin: 'eclipse'
 
-version = '0.1.10-alpha'
+version = '0.2.0-alpha'
 group = 'com.handson'
 archivesBaseName = 'handson'
 

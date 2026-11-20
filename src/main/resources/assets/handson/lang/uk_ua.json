@@ -2,7 +2,7 @@
   "key.categories.handson": "Hands On",
   "key.handson.left_hand": "Ліва рука",
   "key.handson.right_hand": "Права рука",
-  "key.handson.lock": "Замок хвату",
+  "key.handson.lock": "Не випускати предмети",
   "key.handson.toggle": "Перемкнути керування Hands On / ванільне (чити)",
   "message.handson.mode_on": "Керування Hands On",
   "message.handson.mode_off": "Ванільне керування",
@@ -15,12 +15,17 @@
   "label.handson.left_hand": "Ліва рука",
   "label.handson.right_hand": "Права рука",
   "hud.handson.unlocked": "Хват відкрито",
-  "hint.handson.hands.more": "(утримуй, щоб витягнути, відпусти: взяти або кинути)",
+  "hint.handson.hands.more": "(утримуй, щоб витягнути, відпусти: взяти, кинути або вхопитися за блок)",
   "hint.handson.lock.more": "(предмети не випадуть)",
   "hint.handson.inventory": "%s / %s: інвентар",
   "hint.handson.inventory.more": "(слоти навколо гравця)",
   "hint.handson.take": "Відпусти: взяти предмет",
   "hint.handson.slot": "Відпусти: покласти в слот або взяти зі слота",
   "key.handson.use_right": "Використати предмет у правій руці",
-  "key.handson.use_left": "Використати предмет у лівій руці"
+  "key.handson.use_left": "Використати предмет у лівій руці",
+  "key.handson.release": "Відпустити обидві руки",
+  "hint.handson.grab": "Відпусти: вхопитися за блок",
+  "hint.handson.grab.more": "(лише порожньою рукою, натисни кнопку ще раз, щоб відпустити)",
+  "hint.handson.release": "%s: відпустити обидві руки",
+  "hint.handson.release.more": "(стрибок або погляд униз підтягують, двома руками сильніше)"
 }

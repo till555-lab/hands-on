@@ -2,7 +2,7 @@
   "key.categories.handson": "Hands On",
   "key.handson.left_hand": "Левая рука",
   "key.handson.right_hand": "Правая рука",
-  "key.handson.lock": "Замок хвата",
+  "key.handson.lock": "Не выпускать предметы",
   "key.handson.toggle": "Переключить управление Hands On / ванильное (читы)",
   "message.handson.mode_on": "Управление Hands On",
   "message.handson.mode_off": "Ванильное управление",
@@ -15,12 +15,17 @@
   "label.handson.left_hand": "Левая рука",
   "label.handson.right_hand": "Правая рука",
   "hud.handson.unlocked": "Хват открыт",
-  "hint.handson.hands.more": "(удерживай, чтобы вытянуть, отпусти: взять или бросить)",
+  "hint.handson.hands.more": "(удерживай, чтобы вытянуть, отпусти: взять, бросить или схватиться за блок)",
   "hint.handson.lock.more": "(предметы не выпадут)",
   "hint.handson.inventory": "%s / %s: инвентарь",
   "hint.handson.inventory.more": "(слоты вокруг игрока)",
   "hint.handson.take": "Отпусти: взять предмет",
   "hint.handson.slot": "Отпусти: положить в слот или взять из слота",
   "key.handson.use_right": "Использовать предмет в правой руке",
-  "key.handson.use_left": "Использовать предмет в левой руке"
+  "key.handson.use_left": "Использовать предмет в левой руке",
+  "key.handson.release": "Отпустить обе руки",
+  "hint.handson.grab": "Отпусти: схватиться за блок",
+  "hint.handson.grab.more": "(только пустой рукой, нажми кнопку ещё раз, чтобы отпустить)",
+  "hint.handson.release": "%s: отпустить обе руки",
+  "hint.handson.release.more": "(прыжок или взгляд вниз подтягивают, двумя руками сильнее)"
 }

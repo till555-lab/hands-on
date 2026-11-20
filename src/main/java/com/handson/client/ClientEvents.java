@@ -20,6 +20,8 @@ import net.minecraft.client.renderer.IRenderTypeBuffer;
 import net.minecraft.client.renderer.RenderType;
 import net.minecraft.client.renderer.WorldRenderer;
 import net.minecraft.client.renderer.entity.PlayerRenderer;
+import net.minecraft.client.renderer.entity.model.BipedModel;
+import net.minecraft.client.renderer.entity.model.PlayerModel;
 import net.minecraft.client.renderer.model.ItemCameraTransforms;
 import net.minecraft.client.renderer.texture.OverlayTexture;
 import net.minecraft.client.settings.KeyBinding;
@@ -27,9 +29,11 @@ import net.minecraft.client.settings.PointOfView;
 import net.minecraft.client.util.InputMappings;
 import net.minecraft.entity.item.ItemEntity;
 import net.minecraft.item.ItemStack;
+import net.minecraft.util.Direction;
 import net.minecraft.util.Hand;
 import net.minecraft.util.IReorderingProcessor;
 import net.minecraft.util.math.AxisAlignedBB;
+import net.minecraft.util.math.BlockRayTraceResult;
 import net.minecraft.util.math.MathHelper;
 import net.minecraft.util.math.vector.Vector3d;
 import net.minecraft.util.math.vector.Vector3f;
@@ -38,6 +42,7 @@ import net.minecraftforge.client.event.GuiContainerEvent;
 import net.minecraftforge.client.event.InputEvent;
 import net.minecraftforge.client.event.RenderGameOverlayEvent;
 import net.minecraftforge.client.event.RenderHandEvent;
+import net.minecraftforge.client.event.RenderLivingEvent;
 import net.minecraftforge.client.event.RenderWorldLastEvent;
 import net.minecraftforge.event.TickEvent;
 import net.minecraftforge.eventbus.api.SubscribeEvent;
@@ -62,6 +67,7 @@ public class ClientEvents {
     private boolean lockWas = false;
     private boolean invWas = false;
     private boolean cWas = false;
+    private boolean relWas = false;
 
     // ---------------------------------------------------------------- tick
 
@@ -77,6 +83,7 @@ public class ClientEvents {
             lockWas = false;
             invWas = false;
             cWas = false;
+            relWas = false;
             return;
         }
 
@@ -142,29 +149,55 @@ public class ClientEvents {
         }
         invWas = invNow;
 
+        // X lets go with both hands
+        boolean relNow = mc.screen == null && HandKeys.RELEASE.isDown();
+        if (relNow && !relWas) {
+            Grip.releaseAll();
+        }
+        relWas = relNow;
+
+        boolean ladder = mc.player.onClimbable();
         for (int h = 0; h < 2; h++) {
             KeyBinding key = h == 0 ? HandKeys.LEFT : HandKeys.RIGHT;
             boolean now = mc.screen == null && key.isDown();
             boolean was = HandsState.down[h];
+            // pressing a hand that holds on lets go of the block
+            if (now && !was && HandsState.grip[h] != null) {
+                HandsState.grip[h] = null;
+                HandsState.consumed[h] = true;
+            }
+            if (!now) {
+                HandsState.consumed[h] = false;
+            }
+            boolean active = now && !HandsState.consumed[h];
             ItemEntity prevTarget = HandsState.target[h];
             int prevRing = HandsState.ringHover[h];
+            BlockRayTraceResult prevAim = HandsState.aim[h];
 
             HandsState.prevExt[h] = HandsState.ext[h];
-            if (now) {
+            if (active || HandsState.grip[h] != null) {
                 HandsState.ext[h] = Math.min(1.0F, HandsState.ext[h] + SPEED);
+            } else {
+                HandsState.ext[h] = Math.max(0.0F, HandsState.ext[h] - SPEED);
+            }
+            if (active) {
                 int ringSlot = HandsState.invOpen ? findRingSlot(mc) : -1;
                 HandsState.ringHover[h] = ringSlot;
                 HandsState.target[h] = ringSlot >= 0 ? null : findTarget(mc);
+                boolean canGrab = ringSlot < 0 && HandsState.target[h] == null && !ladder
+                        && HandsState.grip[h] == null && HandSlots.get(mc.player, h).isEmpty();
+                HandsState.aim[h] = canGrab ? Grip.findHit(mc) : null;
             } else {
-                HandsState.ext[h] = Math.max(0.0F, HandsState.ext[h] - SPEED);
                 HandsState.ringHover[h] = -1;
                 HandsState.target[h] = null;
+                HandsState.aim[h] = null;
             }
-            if (was && !now) {
-                onRelease(mc, h, prevTarget, prevRing);
+            if (was && !active) {
+                onRelease(mc, h, prevTarget, prevRing, prevAim);
             }
-            HandsState.down[h] = now;
+            HandsState.down[h] = active;
         }
+        Grip.tick(mc);
     }
 
     /** Checked every rendered frame, so the front view never shows up, not even for one frame. */
@@ -201,7 +234,7 @@ public class ClientEvents {
         }
     }
 
-    private void onRelease(Minecraft mc, int h, ItemEntity target, int ringSlot) {
+    private void onRelease(Minecraft mc, int h, ItemEntity target, int ringSlot, BlockRayTraceResult aim) {
         if (ringSlot >= 0) {
             HandsNet.CHANNEL.sendToServer(new HandsPacket(HandsPacket.RING, h, ringSlot, false));
             return;
@@ -213,6 +246,8 @@ public class ClientEvents {
             }
         } else if (target != null && target.isAlive()) {
             HandsNet.CHANNEL.sendToServer(new HandsPacket(HandsPacket.GRAB, h, target.getId(), false));
+        } else if (aim != null && !mc.player.onClimbable()) {
+            HandsState.grip[h] = aim;
         }
     }
 
@@ -513,6 +548,7 @@ public class ClientEvents {
         if (HandsState.invOpen) {
             drawRing(mc, ms, buf, cam, event.getPartialTicks());
         }
+        drawGripMarkers(ms, buf, cam);
 
         for (int h = 0; h < 2; h++) {
             ItemEntity t = HandsState.target[h];
@@ -546,6 +582,78 @@ public class ClientEvents {
                 ms.popPose();
                 buf.endBatch();
             }
+        }
+    }
+
+    // ------------------------------------------------------ grip markers
+
+    /** A small cube in the colour of the hand where it will hold on (while aiming) or holds on. */
+    private static void drawGripMarkers(MatrixStack ms, IRenderTypeBuffer.Impl buf, Vector3d cam) {
+        IVertexBuilder lines = buf.getBuffer(RenderType.lines());
+        boolean any = false;
+        for (int h = 0; h < 2; h++) {
+            BlockRayTraceResult hit = HandsState.grip[h] != null ? HandsState.grip[h]
+                    : (HandsState.down[h] ? HandsState.aim[h] : null);
+            if (hit == null) {
+                continue;
+            }
+            any = true;
+            float r = h == 0 ? 0.25F : 1.0F;
+            float g = h == 0 ? 0.5F : 0.2F;
+            float b = h == 0 ? 1.0F : 0.2F;
+            double half = (HandsState.grip[h] != null ? 0.09D : 0.07D) + 0.01D * h;
+            Vector3d c = hit.getLocation();
+            Direction d = hit.getDirection();
+            double cx = c.x + d.getStepX() * 0.05D;
+            double cy = c.y + d.getStepY() * 0.05D;
+            double cz = c.z + d.getStepZ() * 0.05D;
+            ms.pushPose();
+            ms.translate(-cam.x, -cam.y, -cam.z);
+            for (int k = 0; k < 3; k++) {
+                double s = half * (1.0D - 0.3D * k);
+                WorldRenderer.renderLineBox(ms, lines, cx - s, cy - s, cz - s, cx + s, cy + s, cz + s, r, g, b, 1.0F);
+            }
+            ms.popPose();
+        }
+        if (any) {
+            buf.endBatch(RenderType.lines());
+        }
+    }
+
+    /** Small hand icons at the top right: blue = left hand, red = right hand, shown while a hand holds on. */
+    private static void drawGripIcons(MatrixStack ms, int w) {
+        for (int h = 0; h < 2; h++) {
+            if (HandsState.grip[h] == null) {
+                continue;
+            }
+            int color = h == 0 ? 0xFF4080FF : 0xFFFF4040;
+            int x = w - 44 + h * 20;
+            int y = 6;
+            AbstractGui.fill(ms, x - 2, y - 2, x + 16, y + 18, 0x99000000);
+            AbstractGui.fill(ms, x + 2, y + 7, x + 14, y + 16, color);
+            AbstractGui.fill(ms, x + 2, y + 1, x + 4, y + 7, color);
+            AbstractGui.fill(ms, x + 5, y, x + 7, y + 7, color);
+            AbstractGui.fill(ms, x + 8, y, x + 10, y + 7, color);
+            AbstractGui.fill(ms, x + 11, y + 1, x + 13, y + 7, color);
+        }
+    }
+
+    /** Third person: a hand that holds on is raised above the head. */
+    @SubscribeEvent
+    public void onRenderLivingPre(RenderLivingEvent.Pre event) {
+        if (!HandsState.modeOn || event.getEntity() != Minecraft.getInstance().player) {
+            return;
+        }
+        Object model = event.getRenderer().getModel();
+        if (!(model instanceof PlayerModel)) {
+            return;
+        }
+        PlayerModel<?> pm = (PlayerModel<?>) model;
+        if (HandsState.grip[0] != null) {
+            pm.leftArmPose = BipedModel.ArmPose.THROW_SPEAR;
+        }
+        if (HandsState.grip[1] != null) {
+            pm.rightArmPose = BipedModel.ArmPose.THROW_SPEAR;
         }
     }
 
@@ -662,6 +770,7 @@ public class ClientEvents {
         int hgt = mc.getWindow().getGuiScaledHeight();
         drawHeld(mc, ms, HandSlots.get(mc.player, 0), w / 2 - 118, hgt - 19, false);
         drawHeld(mc, ms, HandSlots.get(mc.player, 1), w / 2 + 102, hgt - 19, true);
+        drawGripIcons(ms, w);
         drawHints(mc, ms, hgt);
     }
 
@@ -696,6 +805,23 @@ public class ClientEvents {
             lines.add(tr("hint.handson.slot"));
         } else if (ground) {
             lines.add(tr("hint.handson.take"));
+        }
+        boolean aiming = false;
+        boolean gripping = false;
+        for (int h = 0; h < 2; h++) {
+            if (HandsState.aim[h] != null) {
+                aiming = true;
+            }
+            if (HandsState.grip[h] != null) {
+                gripping = true;
+            }
+        }
+        if (aiming) {
+            lines.add(tr("hint.handson.grab") + (more ? " " + tr("hint.handson.grab.more") : ""));
+        }
+        if (gripping) {
+            lines.add(tr("hint.handson.release", HandKeys.RELEASE.getTranslatedKeyMessage())
+                    + (more ? " " + tr("hint.handson.release.more") : ""));
         }
 
         lines.add(tr("hint.handson.hands", HandKeys.LEFT.getTranslatedKeyMessage(),

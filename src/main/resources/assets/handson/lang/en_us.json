@@ -2,7 +2,7 @@
   "key.categories.handson": "Hands On",
   "key.handson.left_hand": "Left hand",
   "key.handson.right_hand": "Right hand",
-  "key.handson.lock": "Grip lock",
+  "key.handson.lock": "Keep items in hands",
   "key.handson.toggle": "Switch Hands On / vanilla controls (cheats)",
   "message.handson.mode_on": "Hands On controls",
   "message.handson.mode_off": "Vanilla controls",
@@ -15,12 +15,17 @@
   "label.handson.left_hand": "Left hand",
   "label.handson.right_hand": "Right hand",
   "hud.handson.unlocked": "Grip unlocked",
-  "hint.handson.hands.more": "(hold to reach, release to grab or drop)",
+  "hint.handson.hands.more": "(hold to reach, release to grab, drop, or hold on to a block)",
   "hint.handson.lock.more": "(items will not drop)",
   "hint.handson.inventory": "%s / %s: inventory",
   "hint.handson.inventory.more": "(slots around the player)",
   "hint.handson.take": "Release: take the item",
   "hint.handson.slot": "Release: put into or take from the slot",
   "key.handson.use_right": "Use the item in the right hand",
-  "key.handson.use_left": "Use the item in the left hand"
+  "key.handson.use_left": "Use the item in the left hand",
+  "key.handson.release": "Let go with both hands",
+  "hint.handson.grab": "Release: hold on to the block",
+  "hint.handson.grab.more": "(only with an empty hand, press the button again to let go)",
+  "hint.handson.release": "%s: let go with both hands",
+  "hint.handson.release.more": "(jump or look down to pull up, two hands pull better)"
 }
