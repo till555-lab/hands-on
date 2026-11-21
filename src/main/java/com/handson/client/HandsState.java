@@ -14,22 +14,16 @@ public class HandsState {
     public static final float[] prevExt = new float[2];
     public static final ItemEntity[] target = new ItemEntity[2];
 
-    /** The block point a hand aims at while its button is held (null = nothing to hold on to). */
     public static final BlockRayTraceResult[] aim = new BlockRayTraceResult[2];
-    /** The block point a hand holds on to (null = the hand is not holding on). */
     public static final BlockRayTraceResult[] grip = new BlockRayTraceResult[2];
-    /** World-space position of the grip point (cached for rendering). */
+    /** World-space grip point for rendering the arm line. */
     public static final Vector3d[] gripPoint = new Vector3d[2];
-    /** The press that let go of a grip is used up until the button is released. */
     public static final boolean[] consumed = new boolean[2];
 
-    // ring inventory around the player
     public static boolean invOpen = false;
-    /** Direction of the ring in degrees. Chosen once per player and saved on the server, it is sent to the client on join. */
     public static float anchorYaw = 0.0F;
     public static final int[] ringHover = {-1, -1};
 
-    // smoothed head rotation, used for the lag of the hands
     public static boolean smoothInit = false;
     public static float smoothYaw = 0.0F;
     public static float smoothPitch = 0.0F;
