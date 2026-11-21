@@ -17,7 +17,7 @@ public class Grip {
     private static final double PULL_TWO = 0.18D;   // faster pull with two hands
     private static final double PULL_ONE = 0.09D;   // pull with one hand
     // player can pull up until shoulders are this far ABOVE the grip point
-    private static final double PULL_ABOVE = 1.2D;
+    private static final double PULL_ABOVE = 1.5D;
     private static final double SPRING = 0.6D;
     private static final double DAMP = 0.75D;
 

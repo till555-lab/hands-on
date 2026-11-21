@@ -477,9 +477,12 @@ public class ClientEvents {
             float gpY = (float)(gp.y - cam.y);
             float gpZ = (float)(gp.z - cam.z);
 
-            // perpendicular to arm direction and camera forward = gives thickness
+            // perp = arm direction × camera UP → gives horizontal thickness facing camera
             Vector3d armDir = new Vector3d(gpX-shX, gpY-shY, gpZ-shZ).normalize();
-            Vector3d perp = armDir.cross(camFwd).normalize().scale(ARM_HALF);
+            Vector3d camUp = new Vector3d(0, 1, 0);
+            Vector3d perp = armDir.cross(camUp).normalize();
+            if (perp.lengthSqr() < 0.001D) perp = armDir.cross(camFwd).normalize();
+            perp = perp.scale(ARM_HALF);
 
             float px0 = (float)(shX + perp.x), py0 = (float)(shY + perp.y), pz0 = (float)(shZ + perp.z);
             float px1 = (float)(shX - perp.x), py1 = (float)(shY - perp.y), pz1 = (float)(shZ - perp.z);
@@ -634,7 +637,7 @@ public class ClientEvents {
         for (int h = 0; h < 2; h++) {
             if (HandsState.grip[h] == null) continue;
             int color = h==0?0xFF4080FF:0xFFFF4040;
-            int x = iconX + h*20;
+            int x = 26 + h*20;
             int y = 6;
             AbstractGui.fill(ms,x-2,y-2,x+16,y+18,0x99000000);
             AbstractGui.fill(ms,x+2,y+7,x+14,y+16,color);
