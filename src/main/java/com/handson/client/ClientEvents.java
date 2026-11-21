@@ -428,7 +428,7 @@ public class ClientEvents {
         IVertexBuilder swLines = buf.getBuffer(RenderType.lines());
         WorldRenderer.renderLineBox(ms, swLines, -PANEL, -PANEL, -0.01D, PANEL, PANEL, 0.01D, br, bg, bb, alpha);
         // draw refresh icon (two arcs approximated as line segments)
-        float arc = PANEL * 0.55F;
+        float arc = (float)(PANEL * 0.55);
         for (int seg = 0; seg < 8; seg++) {
             double a1 = Math.PI * 0.1 + seg * Math.PI * 0.22;
             double a2 = a1 + Math.PI * 0.22;
