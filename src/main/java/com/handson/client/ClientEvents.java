@@ -48,6 +48,7 @@ import net.minecraftforge.client.event.RenderWorldLastEvent;
 import net.minecraftforge.event.TickEvent;
 import net.minecraftforge.eventbus.api.SubscribeEvent;
 import org.lwjgl.glfw.GLFW;
+import org.lwjgl.opengl.GL11;
 
 public class ClientEvents {
     private static final float SPEED = 0.34F;
@@ -434,61 +435,81 @@ public class ClientEvents {
     }
 
     /**
-     * Draw beige arm lines from shoulder to grip point using multiple parallel lines for thickness.
-     * Only local player sees these.
+     * Draw solid beige arm rectangles from shoulder to grip point using GL11 quads.
+     * Billboard: face the camera so the arm always has visible width.
      */
     private static void drawArmLines(Minecraft mc, MatrixStack ms, IRenderTypeBuffer.Impl buf, Vector3d cam, float pt) {
         ClientPlayerEntity p = mc.player;
         boolean anyGrip = HandsState.gripPoint[0] != null || HandsState.gripPoint[1] != null;
         if (!anyGrip) return;
 
+        // flush existing render batches before raw GL
+        buf.endBatch();
+
         double px = p.xo + (p.getX()-p.xo)*pt;
         double py = p.yo + (p.getY()-p.yo)*pt;
         double pz = p.zo + (p.getZ()-p.zo)*pt;
 
-        // camera right vector for offsetting parallel lines
         net.minecraft.util.math.vector.Vector3f lv = mc.gameRenderer.getMainCamera().getLookVector();
         Vector3d camFwd = new Vector3d(lv.x(), lv.y(), lv.z());
-        Vector3d camUp = new Vector3d(0,1,0);
-        Vector3d camRight = camFwd.cross(camUp).normalize();
-        Vector3d camUpPerp = camRight.cross(camFwd).normalize();
+        Vector3d camRight = camFwd.cross(new Vector3d(0,1,0)).normalize();
 
-        IVertexBuilder lines = buf.getBuffer(RenderType.lines());
+        RenderSystem.disableTexture();
+        RenderSystem.enableBlend();
+        RenderSystem.defaultBlendFunc();
+        RenderSystem.disableAlphaTest();
+
+        Matrix4f mat = ms.last().pose();
+
+        GL11.glBegin(GL11.GL_QUADS);
+        GL11.glColor4f(ARM_R, ARM_G, ARM_B, 1.0F);
 
         for (int h = 0; h < 2; h++) {
             Vector3d gp = HandsState.gripPoint[h];
             if (gp == null) continue;
 
             double side = h == 1 ? 0.3D : -0.3D;
-            double shX = px + camRight.x*side - cam.x;
-            double shY = py + 1.35D - cam.y;
-            double shZ = pz + camRight.z*side - cam.z;
-            double gpX = gp.x - cam.x;
-            double gpY = gp.y - cam.y;
-            double gpZ = gp.z - cam.z;
+            // shoulder in camera-relative space
+            float shX = (float)(px + camRight.x*side - cam.x);
+            float shY = (float)(py + 1.35D - cam.y);
+            float shZ = (float)(pz + camRight.z*side - cam.z);
+            float gpX = (float)(gp.x - cam.x);
+            float gpY = (float)(gp.y - cam.y);
+            float gpZ = (float)(gp.z - cam.z);
 
-            // draw a grid of ARM_HALF*2 wide bundle of lines
-            int steps = 5;
-            for (int i = 0; i < steps; i++) {
-                for (int j = 0; j < steps; j++) {
-                    double offR = (i/(double)(steps-1) - 0.5D) * ARM_HALF * 2;
-                    double offU = (j/(double)(steps-1) - 0.5D) * ARM_HALF * 2;
-                    double ox = camRight.x*offR + camUpPerp.x*offU;
-                    double oy = camRight.y*offR + camUpPerp.y*offU;
-                    double oz = camRight.z*offR + camUpPerp.z*offU;
-                    addArmLine(lines, ms.last().pose(), ms.last().normal(),
-                            shX+ox, shY+oy, shZ+oz, gpX+ox, gpY+oy, gpZ+oz);
-                }
-            }
+            // perpendicular to arm direction and camera forward = gives thickness
+            Vector3d armDir = new Vector3d(gpX-shX, gpY-shY, gpZ-shZ).normalize();
+            Vector3d perp = armDir.cross(camFwd).normalize().scale(ARM_HALF);
+
+            float px0 = (float)(shX + perp.x), py0 = (float)(shY + perp.y), pz0 = (float)(shZ + perp.z);
+            float px1 = (float)(shX - perp.x), py1 = (float)(shY - perp.y), pz1 = (float)(shZ - perp.z);
+            float px2 = (float)(gpX - perp.x), py2 = (float)(gpY - perp.y), pz2 = (float)(gpZ - perp.z);
+            float px3 = (float)(gpX + perp.x), py3 = (float)(gpY + perp.y), pz3 = (float)(gpZ + perp.z);
+
+            // transform through matrix stack
+            org.lwjgl.system.MemoryStack stack = org.lwjgl.system.MemoryStack.stackPush();
+            java.nio.FloatBuffer fb = stack.mallocFloat(16);
+            mat.store(fb);
+            // apply matrix manually to each vertex
+            glVertex(fb, px0, py0, pz0);
+            glVertex(fb, px1, py1, pz1);
+            glVertex(fb, px2, py2, pz2);
+            glVertex(fb, px3, py3, pz3);
+            stack.pop();
         }
-        buf.endBatch(RenderType.lines());
+        GL11.glEnd();
+
+        RenderSystem.enableTexture();
+        RenderSystem.disableBlend();
+        RenderSystem.enableAlphaTest();
     }
 
-    private static void addArmLine(IVertexBuilder b, Matrix4f mat,
-            net.minecraft.util.math.vector.Matrix3f norm,
-            double x1, double y1, double z1, double x2, double y2, double z2) {
-        b.vertex(mat,(float)x1,(float)y1,(float)z1).color(ARM_R,ARM_G,ARM_B,1F).normal(norm,0,1,0).endVertex();
-        b.vertex(mat,(float)x2,(float)y2,(float)z2).color(ARM_R,ARM_G,ARM_B,1F).normal(norm,0,1,0).endVertex();
+    private static void glVertex(java.nio.FloatBuffer m, float x, float y, float z) {
+        // column-major Matrix4f: m[0..3]=col0, m[4..7]=col1, m[8..11]=col2, m[12..15]=col3
+        float tx = m.get(0)*x + m.get(4)*y + m.get(8)*z + m.get(12);
+        float ty = m.get(1)*x + m.get(5)*y + m.get(9)*z + m.get(13);
+        float tz = m.get(2)*x + m.get(6)*y + m.get(10)*z + m.get(14);
+        GL11.glVertex3f(tx, ty, tz);
     }
 
     /**
@@ -622,8 +643,8 @@ public class ClientEvents {
             AbstractGui.fill(ms,x+8,y,x+10,y+7,color);
             AbstractGui.fill(ms,x+11,y+1,x+13,y+7,color);
         }
-        // lock icon: drawn at x=46 (after both hand icons)
-        drawLockIcon(ms, 46, 6, HandsState.locked);
+        // lock icon: drawn at x=4, top left corner
+        drawLockIcon(ms, 4, 6, HandsState.locked);
 
         drawHeld(mc, ms, HandSlots.get(mc.player,0), w/2-118, hgt-19, false);
         drawHeld(mc, ms, HandSlots.get(mc.player,1), w/2+102, hgt-19, true);

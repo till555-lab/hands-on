@@ -74,14 +74,9 @@ public class Grip {
         double dist = d.length();
         Vector3d mv = p.getDeltaMovement();
 
-        // jump = pull up; works on ground and in air
         boolean jumpDown = mc.options.keyJump.isDown();
-        if (jumpDown && sh.y < anchor.y + PULL_ABOVE) {
-            double up = n >= 2 ? PULL_TWO : PULL_ONE;
-            mv = new Vector3d(mv.x, Math.max(mv.y, up), mv.z);
-        }
 
-        // rope constraint
+        // rope constraint first
         if (dist > REACH - 0.02D && dist > 0.001D) {
             Vector3d dir = d.scale(1.0D / dist);
             double along = mv.dot(dir);
@@ -94,16 +89,23 @@ public class Grip {
             }
         }
 
+        // pull up: set a fixed upward velocity, no spring bounce
+        // stop pulling when shoulders are above anchor + PULL_ABOVE
+        if (jumpDown && sh.y < anchor.y + PULL_ABOVE) {
+            double up = n >= 2 ? PULL_TWO : PULL_ONE;
+            // hard-set vertical velocity to pull speed, don't add on top
+            mv = new Vector3d(mv.x, up, mv.z);
+        } else if (jumpDown) {
+            // reached the top - hold position, cancel vertical movement
+            mv = new Vector3d(mv.x, 0, mv.z);
+        }
+
+        // on ground: suppress vanilla jump entirely
+        if (p.isOnGround() && jumpDown) {
+            mv = new Vector3d(mv.x, 0, mv.z);
+        }
+
         p.setDeltaMovement(mv);
         p.fallDistance = 0.0F;
-
-        // cancel vanilla jump bounce when gripping on ground
-        if (jumpDown && p.isOnGround()) {
-            Vector3d cur = p.getDeltaMovement();
-            double maxUp = n >= 2 ? PULL_TWO : PULL_ONE;
-            if (cur.y > maxUp) {
-                p.setDeltaMovement(cur.x, maxUp, cur.z);
-            }
-        }
     }
 }
