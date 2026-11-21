@@ -48,7 +48,6 @@ import net.minecraftforge.client.event.RenderWorldLastEvent;
 import net.minecraftforge.event.TickEvent;
 import net.minecraftforge.eventbus.api.SubscribeEvent;
 import org.lwjgl.glfw.GLFW;
-import org.lwjgl.opengl.GL11;
 
 public class ClientEvents {
     private static final float SPEED = 0.34F;
@@ -435,16 +434,12 @@ public class ClientEvents {
     }
 
     /**
-     * Draw solid beige arm rectangles from shoulder to grip point using GL11 quads.
-     * Billboard: face the camera so the arm always has visible width.
+     * Draw beige arm from shoulder to grip point as 5x5 grid of lines.
      */
     private static void drawArmLines(Minecraft mc, MatrixStack ms, IRenderTypeBuffer.Impl buf, Vector3d cam, float pt) {
         ClientPlayerEntity p = mc.player;
         boolean anyGrip = HandsState.gripPoint[0] != null || HandsState.gripPoint[1] != null;
         if (!anyGrip) return;
-
-        // flush existing render batches before raw GL
-        buf.endBatch();
 
         double px = p.xo + (p.getX()-p.xo)*pt;
         double py = p.yo + (p.getY()-p.yo)*pt;
@@ -452,67 +447,45 @@ public class ClientEvents {
 
         net.minecraft.util.math.vector.Vector3f lv = mc.gameRenderer.getMainCamera().getLookVector();
         Vector3d camFwd = new Vector3d(lv.x(), lv.y(), lv.z());
-        Vector3d camRight = camFwd.cross(new Vector3d(0,1,0)).normalize();
+        Vector3d camUp = new Vector3d(0,1,0);
+        Vector3d camRight = camFwd.cross(camUp).normalize();
+        Vector3d camUpPerp = camRight.cross(camFwd).normalize();
 
-        RenderSystem.disableTexture();
-        RenderSystem.enableBlend();
-        RenderSystem.defaultBlendFunc();
-        RenderSystem.disableAlphaTest();
-
-        Matrix4f mat = ms.last().pose();
-
-        GL11.glBegin(GL11.GL_QUADS);
-        GL11.glColor4f(ARM_R, ARM_G, ARM_B, 1.0F);
+        IVertexBuilder lines = buf.getBuffer(RenderType.lines());
 
         for (int h = 0; h < 2; h++) {
             Vector3d gp = HandsState.gripPoint[h];
             if (gp == null) continue;
 
             double side = h == 1 ? 0.3D : -0.3D;
-            // shoulder in camera-relative space
-            float shX = (float)(px + camRight.x*side - cam.x);
-            float shY = (float)(py + 1.35D - cam.y);
-            float shZ = (float)(pz + camRight.z*side - cam.z);
-            float gpX = (float)(gp.x - cam.x);
-            float gpY = (float)(gp.y - cam.y);
-            float gpZ = (float)(gp.z - cam.z);
+            double shX = px + camRight.x*side - cam.x;
+            double shY = py + 1.35D - cam.y;
+            double shZ = pz + camRight.z*side - cam.z;
+            double gpX = gp.x - cam.x;
+            double gpY = gp.y - cam.y;
+            double gpZ = gp.z - cam.z;
 
-            // perp = arm direction × camera UP → gives horizontal thickness facing camera
-            Vector3d armDir = new Vector3d(gpX-shX, gpY-shY, gpZ-shZ).normalize();
-            Vector3d camUp = new Vector3d(0, 1, 0);
-            Vector3d perp = armDir.cross(camUp).normalize();
-            if (perp.lengthSqr() < 0.001D) perp = armDir.cross(camFwd).normalize();
-            perp = perp.scale(ARM_HALF);
-
-            float px0 = (float)(shX + perp.x), py0 = (float)(shY + perp.y), pz0 = (float)(shZ + perp.z);
-            float px1 = (float)(shX - perp.x), py1 = (float)(shY - perp.y), pz1 = (float)(shZ - perp.z);
-            float px2 = (float)(gpX - perp.x), py2 = (float)(gpY - perp.y), pz2 = (float)(gpZ - perp.z);
-            float px3 = (float)(gpX + perp.x), py3 = (float)(gpY + perp.y), pz3 = (float)(gpZ + perp.z);
-
-            // transform through matrix stack
-            org.lwjgl.system.MemoryStack stack = org.lwjgl.system.MemoryStack.stackPush();
-            java.nio.FloatBuffer fb = stack.mallocFloat(16);
-            mat.store(fb);
-            // apply matrix manually to each vertex
-            glVertex(fb, px0, py0, pz0);
-            glVertex(fb, px1, py1, pz1);
-            glVertex(fb, px2, py2, pz2);
-            glVertex(fb, px3, py3, pz3);
-            stack.pop();
+            int steps = 5;
+            for (int i = 0; i < steps; i++) {
+                for (int j = 0; j < steps; j++) {
+                    double offR = (i/(double)(steps-1) - 0.5D) * ARM_HALF * 2;
+                    double offU = (j/(double)(steps-1) - 0.5D) * ARM_HALF * 2;
+                    double ox = camRight.x*offR + camUpPerp.x*offU;
+                    double oy = camRight.y*offR + camUpPerp.y*offU;
+                    double oz = camRight.z*offR + camUpPerp.z*offU;
+                    addArmLine(lines, ms.last().pose(), ms.last().normal(),
+                            shX+ox, shY+oy, shZ+oz, gpX+ox, gpY+oy, gpZ+oz);
+                }
+            }
         }
-        GL11.glEnd();
-
-        RenderSystem.enableTexture();
-        RenderSystem.disableBlend();
-        RenderSystem.enableAlphaTest();
+        buf.endBatch(RenderType.lines());
     }
 
-    private static void glVertex(java.nio.FloatBuffer m, float x, float y, float z) {
-        // column-major Matrix4f: m[0..3]=col0, m[4..7]=col1, m[8..11]=col2, m[12..15]=col3
-        float tx = m.get(0)*x + m.get(4)*y + m.get(8)*z + m.get(12);
-        float ty = m.get(1)*x + m.get(5)*y + m.get(9)*z + m.get(13);
-        float tz = m.get(2)*x + m.get(6)*y + m.get(10)*z + m.get(14);
-        GL11.glVertex3f(tx, ty, tz);
+    private static void addArmLine(IVertexBuilder b, Matrix4f mat,
+            net.minecraft.util.math.vector.Matrix3f norm,
+            double x1, double y1, double z1, double x2, double y2, double z2) {
+        b.vertex(mat,(float)x1,(float)y1,(float)z1).color(ARM_R,ARM_G,ARM_B,1F).normal(norm,0,1,0).endVertex();
+        b.vertex(mat,(float)x2,(float)y2,(float)z2).color(ARM_R,ARM_G,ARM_B,1F).normal(norm,0,1,0).endVertex();
     }
 
     /**
@@ -554,15 +527,41 @@ public class ClientEvents {
         RenderSystem.enableDepthTest();
     }
 
-    // third person: raise arms when gripping
+    // third person: rotate arms toward grip point
     @SubscribeEvent
     public void onRenderLivingPre(RenderLivingEvent.Pre event) {
         if (!HandsState.modeOn || event.getEntity() != Minecraft.getInstance().player) return;
         Object model = event.getRenderer().getModel();
         if (!(model instanceof PlayerModel)) return;
         PlayerModel<?> pm = (PlayerModel<?>) model;
-        if (HandsState.grip[0] != null) pm.leftArmPose = BipedModel.ArmPose.THROW_SPEAR;
-        if (HandsState.grip[1] != null) pm.rightArmPose = BipedModel.ArmPose.THROW_SPEAR;
+        ClientPlayerEntity p = Minecraft.getInstance().player;
+
+        for (int h = 0; h < 2; h++) {
+            if (HandsState.gripPoint[h] == null) continue;
+            // shoulder position
+            Vector3d sh = Grip.shoulder(p).add(h == 1 ? 0.3D : -0.3D, 0, 0);
+            Vector3d gp = HandsState.gripPoint[h];
+            Vector3d dir = gp.subtract(sh).normalize();
+
+            // compute pitch and yaw relative to player body
+            float yawDeg = (float) Math.toDegrees(Math.atan2(-dir.x, dir.z));
+            float pitchDeg = (float) Math.toDegrees(-Math.atan2(dir.y, Math.sqrt(dir.x*dir.x + dir.z*dir.z)));
+
+            float relYaw = MathHelper.wrapDegrees(yawDeg - p.yRot);
+            // convert to arm bone rotation (Minecraft arm yRot is relative to body, positive = right)
+            float armYaw = (float) Math.toRadians(relYaw);
+            float armPitch = (float) Math.toRadians(pitchDeg);
+
+            if (h == 0) { // left
+                pm.leftArmPose = BipedModel.ArmPose.EMPTY;
+                pm.leftArm.yRot = -armYaw;
+                pm.leftArm.xRot = -armPitch;
+            } else { // right
+                pm.rightArmPose = BipedModel.ArmPose.EMPTY;
+                pm.rightArm.yRot = -armYaw;
+                pm.rightArm.xRot = -armPitch;
+            }
+        }
     }
 
     // ------------------------------------------- inventory slots
