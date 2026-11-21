@@ -21,6 +21,8 @@ public class HandsState {
     public static final boolean[] consumed = new boolean[2];
 
     public static boolean invOpen = false;
+    /** true = second ring mode (blocked slots, future: armor/craft) */
+    public static boolean invMode2 = false;
     public static float anchorYaw = 0.0F;
     public static final int[] ringHover = {-1, -1};
 
@@ -49,6 +51,7 @@ public class HandsState {
             ringHover[i] = -1;
         }
         invOpen = false;
+        invMode2 = false;
         smoothInit = false;
         Grip.reset();
     }

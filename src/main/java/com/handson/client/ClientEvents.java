@@ -201,8 +201,15 @@ public class ClientEvents {
     }
 
     private void onRelease(Minecraft mc, int h, ItemEntity target, int ringSlot, BlockRayTraceResult aim) {
+        if (ringSlot == RING_SWITCH) {
+            HandsState.invMode2 = !HandsState.invMode2;
+            return;
+        }
         if (ringSlot >= 0) {
-            HandsNet.CHANNEL.sendToServer(new HandsPacket(HandsPacket.RING, h, ringSlot, false));
+            if (!HandsState.invMode2) {
+                HandsNet.CHANNEL.sendToServer(new HandsPacket(HandsPacket.RING, h, ringSlot, false));
+            }
+            // in mode2, slots are blocked - do nothing
             return;
         }
         ItemStack held = HandSlots.get(mc.player, h);
@@ -330,6 +337,17 @@ public class ClientEvents {
         return new double[]{px - Math.sin(ang)*r, by+dy, pz + Math.cos(ang)*r, yaw, tilt};
     }
 
+    /** Special ring slot index for the mode-switch button. */
+    public static final int RING_SWITCH = HandSlots.RING_COUNT;
+
+    private static double[] switchSlot(ClientPlayerEntity p, float pt) {
+        // placed directly below the player (looking down)
+        double px = p.xo + (p.getX()-p.xo)*pt;
+        double py = p.yo + (p.getY()-p.yo)*pt;
+        double pz = p.zo + (p.getZ()-p.zo)*pt;
+        return new double[]{px, py + 0.3D, pz, 0.0D, 90.0D};
+    }
+
     private static int findRingSlot(Minecraft mc) {
         ClientPlayerEntity p = mc.player;
         if (!HandSlots.ringReady(p)) return -1;
@@ -342,6 +360,14 @@ public class ClientEvents {
             double t = v.dot(look); if (t <= 0) continue;
             double d = v.subtract(look.scale(t)).length();
             if (d < bestD) { bestD = d; best = i; }
+        }
+        // check switch slot
+        double[] sw = switchSlot(p, 1.0F);
+        Vector3d vs = new Vector3d(sw[0]-eye.x, sw[1]-eye.y, sw[2]-eye.z);
+        double ts = vs.dot(look);
+        if (ts > 0) {
+            double ds = vs.subtract(look.scale(ts)).length();
+            if (ds < bestD) { best = RING_SWITCH; }
         }
         return best;
     }
@@ -388,6 +414,31 @@ public class ClientEvents {
             }
         }
         buf.endBatch();
+
+        // draw switch button
+        double[] sw = switchSlot(p, pt);
+        ms.pushPose();
+        ringTransform(ms, sw, cam);
+        // button color: blue = normal mode, red = mode2
+        float br = HandsState.invMode2 ? 1.0F : 0.2F;
+        float bg = 0.2F;
+        float bb = HandsState.invMode2 ? 0.2F : 1.0F;
+        boolean swHover = HandsState.ringHover[0] == RING_SWITCH || HandsState.ringHover[1] == RING_SWITCH;
+        float alpha = swHover ? 1.0F : 0.75F;
+        IVertexBuilder swLines = buf.getBuffer(RenderType.lines());
+        WorldRenderer.renderLineBox(ms, swLines, -PANEL, -PANEL, -0.01D, PANEL, PANEL, 0.01D, br, bg, bb, alpha);
+        // draw refresh icon (two arcs approximated as line segments)
+        float arc = PANEL * 0.55F;
+        for (int seg = 0; seg < 8; seg++) {
+            double a1 = Math.PI * 0.1 + seg * Math.PI * 0.22;
+            double a2 = a1 + Math.PI * 0.22;
+            float x1 = (float)(Math.cos(a1)*arc), y1 = (float)(Math.sin(a1)*arc);
+            float x2 = (float)(Math.cos(a2)*arc), y2 = (float)(Math.sin(a2)*arc);
+            swLines.vertex(ms.last().pose(),(float)x1,(float)y1,0).color(1F,1F,1F,alpha).normal(ms.last().normal(),0,0,1).endVertex();
+            swLines.vertex(ms.last().pose(),(float)x2,(float)y2,0).color(1F,1F,1F,alpha).normal(ms.last().normal(),0,0,1).endVertex();
+        }
+        buf.endBatch(RenderType.lines());
+        ms.popPose();
     }
 
     // -------------------------------------------------------- world render
@@ -538,28 +589,13 @@ public class ClientEvents {
 
         for (int h = 0; h < 2; h++) {
             if (HandsState.gripPoint[h] == null) continue;
-            // shoulder position
-            Vector3d sh = Grip.shoulder(p).add(h == 1 ? 0.3D : -0.3D, 0, 0);
-            Vector3d gp = HandsState.gripPoint[h];
-            Vector3d dir = gp.subtract(sh).normalize();
-
-            // compute pitch and yaw relative to player body
-            float yawDeg = (float) Math.toDegrees(Math.atan2(-dir.x, dir.z));
-            float pitchDeg = (float) Math.toDegrees(-Math.atan2(dir.y, Math.sqrt(dir.x*dir.x + dir.z*dir.z)));
-
-            float relYaw = MathHelper.wrapDegrees(yawDeg - p.yRot);
-            // convert to arm bone rotation (Minecraft arm yRot is relative to body, positive = right)
-            float armYaw = (float) Math.toRadians(relYaw);
-            float armPitch = (float) Math.toRadians(pitchDeg);
-
-            if (h == 0) { // left
-                pm.leftArmPose = BipedModel.ArmPose.EMPTY;
-                pm.leftArm.yRot = -armYaw;
-                pm.leftArm.xRot = -armPitch;
-            } else { // right
-                pm.rightArmPose = BipedModel.ArmPose.EMPTY;
-                pm.rightArm.yRot = -armYaw;
-                pm.rightArm.xRot = -armPitch;
+            // hide the vanilla arm — our beige lines already show the grip arm
+            if (h == 0) {
+                pm.leftArm.visible = false;
+                pm.leftSleeve.visible = false;
+            } else {
+                pm.rightArm.visible = false;
+                pm.rightSleeve.visible = false;
             }
         }
     }
