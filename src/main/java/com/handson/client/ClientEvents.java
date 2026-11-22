@@ -48,6 +48,7 @@ import net.minecraftforge.client.event.RenderWorldLastEvent;
 import net.minecraftforge.event.TickEvent;
 import net.minecraftforge.eventbus.api.SubscribeEvent;
 import org.lwjgl.glfw.GLFW;
+import org.lwjgl.opengl.GL11;
 
 public class ClientEvents {
     private static final float SPEED = 0.34F;
@@ -98,7 +99,8 @@ public class ClientEvents {
         if (mc.screen == null) {
             GameSettings o = mc.options;
             drain(o.keyAttack); drain(o.keyUse); drain(o.keyInventory);
-            drain(o.keyDrop); drain(o.keySwapOffhand); drain(o.keyAdvancements);
+            // never drain Drop key - let vanilla Q work normally everywhere
+            drain(o.keySwapOffhand); drain(o.keyAdvancements);
             for (KeyBinding slotKey : o.keyHotbarSlots) drain(slotKey);
             skipFrontView(o);
 
@@ -361,6 +363,10 @@ public class ClientEvents {
             double d = v.subtract(look.scale(t)).length();
             if (d < bestD) { bestD = d; best = i; }
         }
+        // in mode2, regular ring slots are blocked (can't take items)
+        if (HandsState.invMode2 && best >= 0 && best < HandSlots.RING_COUNT) {
+            best = -1; // blocked
+        }
         // check switch slot
         double[] sw = switchSlot(p, 1.0F);
         Vector3d vs = new Vector3d(sw[0]-eye.x, sw[1]-eye.y, sw[2]-eye.z);
@@ -415,29 +421,83 @@ public class ClientEvents {
         }
         buf.endBatch();
 
-        // draw switch button
+        // draw switch button — filled square with two-arrow (swap) icon
         double[] sw = switchSlot(p, pt);
         ms.pushPose();
         ringTransform(ms, sw, cam);
-        // button color: blue = normal mode, red = mode2
-        float br = HandsState.invMode2 ? 1.0F : 0.2F;
-        float bg = 0.2F;
-        float bb = HandsState.invMode2 ? 0.2F : 1.0F;
         boolean swHover = HandsState.ringHover[0] == RING_SWITCH || HandsState.ringHover[1] == RING_SWITCH;
-        float alpha = swHover ? 1.0F : 0.75F;
-        IVertexBuilder swLines = buf.getBuffer(RenderType.lines());
-        WorldRenderer.renderLineBox(ms, swLines, -PANEL, -PANEL, -0.01D, PANEL, PANEL, 0.01D, br, bg, bb, alpha);
-        // draw refresh icon (two arcs approximated as line segments)
-        float arc = (float)(PANEL * 0.55);
-        for (int seg = 0; seg < 8; seg++) {
-            double a1 = Math.PI * 0.1 + seg * Math.PI * 0.22;
-            double a2 = a1 + Math.PI * 0.22;
-            float x1 = (float)(Math.cos(a1)*arc), y1 = (float)(Math.sin(a1)*arc);
-            float x2 = (float)(Math.cos(a2)*arc), y2 = (float)(Math.sin(a2)*arc);
-            swLines.vertex(ms.last().pose(),(float)x1,(float)y1,0).color(1F,1F,1F,alpha).normal(ms.last().normal(),0,0,1).endVertex();
-            swLines.vertex(ms.last().pose(),(float)x2,(float)y2,0).color(1F,1F,1F,alpha).normal(ms.last().normal(),0,0,1).endVertex();
+        float alpha = swHover ? 1.0F : 0.82F;
+        // color: blue = mode1, red = mode2
+        float br = HandsState.invMode2 ? 0.8F : 0.1F;
+        float bg = 0.1F;
+        float bb = HandsState.invMode2 ? 0.1F : 0.8F;
+
+        // flush then draw filled quad via GL11
+        buf.endBatch();
+        RenderSystem.disableTexture();
+        RenderSystem.enableBlend();
+        RenderSystem.defaultBlendFunc();
+        Matrix4f mat = ms.last().pose();
+        org.lwjgl.system.MemoryStack stk = org.lwjgl.system.MemoryStack.stackPush();
+        java.nio.FloatBuffer mb = stk.mallocFloat(16);
+        mat.store(mb);
+        GL11.glBegin(GL11.GL_QUADS);
+        GL11.glColor4f(br, bg, bb, alpha);
+        float p2 = (float)PANEL;
+        glVtx(mb, -p2, -p2, 0); glVtx(mb, p2, -p2, 0); glVtx(mb, p2, p2, 0); glVtx(mb, -p2, p2, 0);
+        GL11.glEnd();
+        // draw two-arrow icon (↑ on left, ↓ on right) in white
+        float s = p2 * 0.42F;
+        GL11.glBegin(GL11.GL_LINES);
+        GL11.glColor4f(1F, 1F, 1F, alpha);
+        // left up-arrow shaft
+        GL11.glVertex3f(applyM(mb,-s*0.5F,-s,0,0), applyM(mb,-s*0.5F,-s,0,1), applyM(mb,-s*0.5F,-s,0,2));
+        GL11.glVertex3f(applyM(mb,-s*0.5F, s,0,0), applyM(mb,-s*0.5F, s,0,1), applyM(mb,-s*0.5F, s,0,2));
+        // left up-arrow head left
+        GL11.glVertex3f(applyM(mb,-s*0.5F, s,0,0), applyM(mb,-s*0.5F, s,0,1), applyM(mb,-s*0.5F, s,0,2));
+        GL11.glVertex3f(applyM(mb,-s*0.9F, s*0.5F,0,0), applyM(mb,-s*0.9F, s*0.5F,0,1), applyM(mb,-s*0.9F, s*0.5F,0,2));
+        // left up-arrow head right
+        GL11.glVertex3f(applyM(mb,-s*0.5F, s,0,0), applyM(mb,-s*0.5F, s,0,1), applyM(mb,-s*0.5F, s,0,2));
+        GL11.glVertex3f(applyM(mb,-s*0.1F, s*0.5F,0,0), applyM(mb,-s*0.1F, s*0.5F,0,1), applyM(mb,-s*0.1F, s*0.5F,0,2));
+        // right down-arrow shaft
+        GL11.glVertex3f(applyM(mb, s*0.5F, s,0,0), applyM(mb, s*0.5F, s,0,1), applyM(mb, s*0.5F, s,0,2));
+        GL11.glVertex3f(applyM(mb, s*0.5F,-s,0,0), applyM(mb, s*0.5F,-s,0,1), applyM(mb, s*0.5F,-s,0,2));
+        // right down-arrow head left
+        GL11.glVertex3f(applyM(mb, s*0.5F,-s,0,0), applyM(mb, s*0.5F,-s,0,1), applyM(mb, s*0.5F,-s,0,2));
+        GL11.glVertex3f(applyM(mb, s*0.1F,-s*0.5F,0,0), applyM(mb, s*0.1F,-s*0.5F,0,1), applyM(mb, s*0.1F,-s*0.5F,0,2));
+        // circular refresh icon: two arcs (top-right arc CW, bottom-left arc CW)
+        // top-right arc: from 30° to 330° (missing 30° gap at bottom for arrow)
+        int segs = 10;
+        float r = s * 0.72F;
+        float inner = r * 0.55F;
+        // outer arc top (0 to ~150 deg)
+        for (int i = 0; i < segs; i++) {
+            double a1 = Math.toRadians(20 + i * 14);
+            double a2 = Math.toRadians(20 + (i+1) * 14);
+            glLine(mb, (float)(Math.cos(a1)*r), (float)(Math.sin(a1)*r),
+                       (float)(Math.cos(a2)*r), (float)(Math.sin(a2)*r));
         }
-        buf.endBatch(RenderType.lines());
+        // outer arc bottom (180 to ~330 deg)
+        for (int i = 0; i < segs; i++) {
+            double a1 = Math.toRadians(200 + i * 14);
+            double a2 = Math.toRadians(200 + (i+1) * 14);
+            glLine(mb, (float)(Math.cos(a1)*r), (float)(Math.sin(a1)*r),
+                       (float)(Math.cos(a2)*r), (float)(Math.sin(a2)*r));
+        }
+        // arrowhead at end of top arc (pointing clockwise ~160deg)
+        float ax = (float)(Math.cos(Math.toRadians(160))*r);
+        float ay = (float)(Math.sin(Math.toRadians(160))*r);
+        glLine(mb, ax, ay, ax + s*0.18F, ay - s*0.22F);
+        glLine(mb, ax, ay, ax + s*0.25F, ay + s*0.08F);
+        // arrowhead at end of bottom arc (~340deg)
+        float bx = (float)(Math.cos(Math.toRadians(340))*r);
+        float by = (float)(Math.sin(Math.toRadians(340))*r);
+        glLine(mb, bx, by, bx - s*0.18F, by + s*0.22F);
+        glLine(mb, bx, by, bx - s*0.25F, by - s*0.08F);
+        GL11.glEnd();
+        stk.pop();
+        RenderSystem.enableTexture();
+        RenderSystem.disableBlend();
         ms.popPose();
     }
 
@@ -532,6 +592,18 @@ public class ClientEvents {
         buf.endBatch(RenderType.lines());
     }
 
+    private static void glLine(java.nio.FloatBuffer m, float x1, float y1, float x2, float y2) {
+        GL11.glVertex3f(m.get(0)*x1+m.get(4)*y1+m.get(12), m.get(1)*x1+m.get(5)*y1+m.get(13), m.get(2)*x1+m.get(6)*y1+m.get(14));
+        GL11.glVertex3f(m.get(0)*x2+m.get(4)*y2+m.get(12), m.get(1)*x2+m.get(5)*y2+m.get(13), m.get(2)*x2+m.get(6)*y2+m.get(14));
+    }
+    private static void glVtx(java.nio.FloatBuffer m, float x, float y, float z) {
+        GL11.glVertex3f(m.get(0)*x+m.get(4)*y+m.get(8)*z+m.get(12),
+                        m.get(1)*x+m.get(5)*y+m.get(9)*z+m.get(13),
+                        m.get(2)*x+m.get(6)*y+m.get(10)*z+m.get(14));
+    }
+    private static float applyM(java.nio.FloatBuffer m, float x, float y, float z, int row) {
+        return m.get(row)*x + m.get(row+4)*y + m.get(row+8)*z + m.get(row+12);
+    }
     private static void addArmLine(IVertexBuilder b, Matrix4f mat,
             net.minecraft.util.math.vector.Matrix3f norm,
             double x1, double y1, double z1, double x2, double y2, double z2) {
