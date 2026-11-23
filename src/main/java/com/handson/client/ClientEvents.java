@@ -356,7 +356,7 @@ public class ClientEvents {
             if (t < 0) continue;
             Vector3d proj = look.scale(t);
             double ds = diff.subtract(proj).lengthSqr();
-            if (ds < bestD && ds < best == -1 ? true : ds < bestD) { bestD = ds; best = i; }
+            if (best == -1 || ds < bestD) { bestD = ds; best = i; }
         }
         // in mode2, regular ring slots are blocked (can't take items)
         if (HandsState.invMode2 && best >= 0 && best < HandSlots.RING_COUNT) {
