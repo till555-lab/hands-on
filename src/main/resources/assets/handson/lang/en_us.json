@@ -27,5 +27,6 @@
   "hint.handson.grab": "Release: hold on to the block",
   "hint.handson.grab.more": "(only with an empty hand, press the button again to let go)",
   "hint.handson.release": "%s: let go with both hands",
-  "hint.handson.release.more": "(jump or look down to pull up, two hands pull better)"
+  "hint.handson.release.more": "(jump or look down to pull up, two hands pull better)",
+  "hint.handson.lock.active": "[LOCKED]"
 }

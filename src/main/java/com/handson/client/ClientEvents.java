@@ -48,7 +48,6 @@ import net.minecraftforge.client.event.RenderWorldLastEvent;
 import net.minecraftforge.event.TickEvent;
 import net.minecraftforge.eventbus.api.SubscribeEvent;
 import org.lwjgl.glfw.GLFW;
-import org.lwjgl.opengl.GL11;
 
 public class ClientEvents {
     private static final float SPEED = 0.34F;
@@ -320,34 +319,26 @@ public class ClientEvents {
     // ------------------------------------------------------------ ring inventory
 
     private static double[] ringSlot(ClientPlayerEntity p, float pt, int i) {
-        double px = p.xo + (p.getX() - p.xo) * pt;
-        double py = p.yo + (p.getY() - p.yo) * pt;
-        double pz = p.zo + (p.getZ() - p.zo) * pt;
-        double by = py + 1.22D;
-        double body = HandsState.anchorYaw;
+        float body = HandsState.anchorYaw * ((float)Math.PI / 180F);
         double yaw, dy = 0, r = RING_R, tilt = 0;
-        if (i < 8) { yaw = body + i * 45.0D; }
-        else if (i < 16) {
-            int k = (i - 8) % 4; yaw = body + k * 90.0D; r = RING_R - 0.15D;
-            if (i < 12) { dy = 0.62D; tilt = -35.0D; } else { dy = -0.62D; tilt = 35.0D; }
-        } else if (i < 20) {
-            int k = i - 16; yaw = body + (1 + 2*k) * 45.0D; r = RING_R - 0.15D; dy = -0.62D; tilt = 35.0D;
-        } else {
-            int k = i - 20; yaw = body + (1 + 2*k) * 45.0D; r = RING_R - 0.15D; dy = 0.62D; tilt = -35.0D;
-        }
-        double ang = Math.toRadians(yaw);
-        return new double[]{px - Math.sin(ang)*r, by+dy, pz + Math.cos(ang)*r, yaw, tilt};
+        if (i < 8)      { yaw = body + i * (Math.PI / 4); }
+        else if (i < 16){ int k = (i - 8) % 4; yaw = body + k * 90.0D * (Math.PI/180); r = RING_R - 0.15D; }
+        else if (i < 20){ int k = i - 16; yaw = body + (1 + 2*k) * 45.0D * (Math.PI/180); r = RING_R - 0.15D; dy = -0.62D; tilt = 35.0D; }
+        else            { int k = i - 20; yaw = body + (1 + 2*k) * 45.0D * (Math.PI/180); r = RING_R - 0.15D; dy = 0.62D; tilt = -35.0D; }
+        double x = Math.sin(yaw) * r;
+        double z = Math.cos(yaw) * r;
+        return new double[]{x, dy, -z, yaw * (180/Math.PI), tilt};
     }
 
     /** Special ring slot index for the mode-switch button. */
     public static final int RING_SWITCH = HandSlots.RING_COUNT;
 
     private static double[] switchSlot(ClientPlayerEntity p, float pt) {
-        // placed directly below the player (looking down)
-        double px = p.xo + (p.getX()-p.xo)*pt;
-        double py = p.yo + (p.getY()-p.yo)*pt;
-        double pz = p.zo + (p.getZ()-p.zo)*pt;
-        return new double[]{px, py + 0.3D, pz, 0.0D, 90.0D};
+        float pitch = p.getViewXRot(pt);
+        float yaw   = HandsState.anchorYaw;
+        double x =  Math.sin(Math.toRadians(yaw)) * RING_R * 0.0D;
+        double z = -Math.cos(Math.toRadians(yaw)) * RING_R * 0.0D;
+        return new double[]{0, -RING_R * 0.75D, 0, yaw, 80.0D};
     }
 
     private static int findRingSlot(Minecraft mc) {
@@ -355,150 +346,317 @@ public class ClientEvents {
         if (!HandSlots.ringReady(p)) return -1;
         Vector3d eye = p.getEyePosition(1.0F);
         Vector3d look = p.getViewVector(1.0F);
-        int best = -1; double bestD = 0.3D;
+        double bestD = PANEL * PANEL * 4;
+        int best = -1;
         for (int i = 0; i < HandSlots.RING_COUNT; i++) {
             double[] s = ringSlot(p, 1.0F, i);
-            Vector3d v = new Vector3d(s[0]-eye.x, s[1]-eye.y, s[2]-eye.z);
-            double t = v.dot(look); if (t <= 0) continue;
-            double d = v.subtract(look.scale(t)).length();
-            if (d < bestD) { bestD = d; best = i; }
+            Vector3d pos = new Vector3d(p.getX() + s[0], p.getY() + s[1], p.getZ() + s[2]);
+            Vector3d diff = pos.subtract(eye);
+            double t = diff.dot(look);
+            if (t < 0) continue;
+            Vector3d proj = look.scale(t);
+            double ds = diff.subtract(proj).lengthSqr();
+            if (ds < bestD && ds < best == -1 ? true : ds < bestD) { bestD = ds; best = i; }
         }
         // in mode2, regular ring slots are blocked (can't take items)
         if (HandsState.invMode2 && best >= 0 && best < HandSlots.RING_COUNT) {
-            best = -1; // blocked
+            best = -1;
         }
         // check switch slot
         double[] sw = switchSlot(p, 1.0F);
-        Vector3d vs = new Vector3d(sw[0]-eye.x, sw[1]-eye.y, sw[2]-eye.z);
-        double ts = vs.dot(look);
-        if (ts > 0) {
-            double ds = vs.subtract(look.scale(ts)).length();
+        Vector3d swPos = new Vector3d(p.getX() + sw[0], p.getY() + sw[1], p.getZ() + sw[2]);
+        Vector3d diff = swPos.subtract(eye);
+        double t = diff.dot(look);
+        if (t >= 0) {
+            Vector3d proj = look.scale(t);
+            double ds = diff.subtract(proj).lengthSqr();
             if (ds < bestD) { best = RING_SWITCH; }
         }
         return best;
     }
 
     private static void ringTransform(MatrixStack ms, double[] s, Vector3d cam) {
-        ms.translate(s[0]-cam.x, s[1]-cam.y, s[2]-cam.z);
-        ms.mulPose(Vector3f.YP.rotationDegrees((float)-s[3]));
-        ms.mulPose(Vector3f.XP.rotationDegrees((float)s[4]));
+        ms.translate(s[0] - cam.x, s[1] - cam.y, -s[2] - cam.z);
+        ms.mulPose(Vector3f.YP.rotationDegrees((float)s[3]));
+        if (s[4] != 0) ms.mulPose(Vector3f.XP.rotationDegrees((float)s[4]));
     }
 
     private static void drawRing(Minecraft mc, MatrixStack ms, IRenderTypeBuffer.Impl buf, Vector3d cam, float pt) {
         ClientPlayerEntity p = mc.player;
         if (p == null || !HandSlots.ringReady(p)) return;
-        IVertexBuilder lines = buf.getBuffer(RenderType.lines());
-        for (int i = 0; i < HandSlots.RING_COUNT; i++) {
-            float r=0.85F,g=0.85F,b=0.85F;
-            boolean hL = HandsState.ringHover[0]==i, hR = HandsState.ringHover[1]==i;
-            if (hL&&hR){r=0.7F;g=0.3F;b=1F;}else if(hR){r=1F;g=0.2F;b=0.2F;}else if(hL){r=0.25F;g=0.5F;b=1F;}
-            double[] s = ringSlot(p, pt, i);
-            ms.pushPose(); ringTransform(ms, s, cam);
-            WorldRenderer.renderLineBox(ms,lines,-PANEL,-PANEL,-0.01D,PANEL,PANEL,0.01D,r,g,b,0.9F);
-            WorldRenderer.renderLineBox(ms,lines,-PANEL-0.01D,-PANEL-0.01D,-0.01D,PANEL+0.01D,PANEL+0.01D,0.01D,r,g,b,0.9F);
-            if (HandSlots.getRing(p,i).isEmpty()) {
-                WorldRenderer.renderLineBox(ms,lines,-0.07D,-0.005D,-0.005D,0.07D,0.005D,0.005D,1F,1F,1F,0.9F);
-                WorldRenderer.renderLineBox(ms,lines,-0.005D,-0.07D,-0.005D,0.005D,0.07D,0.005D,1F,1F,1F,0.9F);
-            }
-            ms.popPose();
-        }
-        buf.endBatch(RenderType.lines());
-        for (int i = 0; i < HandSlots.RING_COUNT; i++) {
-            ItemStack st = HandSlots.getRing(p,i); if(st.isEmpty()) continue;
-            double[] s = ringSlot(p,pt,i);
-            ms.pushPose(); ringTransform(ms,s,cam);
-            ms.mulPose(Vector3f.YP.rotationDegrees(180F)); ms.scale(0.4F,0.4F,0.4F);
-            mc.getItemRenderer().renderStatic(st,ItemCameraTransforms.TransformType.FIXED,15728880,OverlayTexture.NO_OVERLAY,ms,buf);
-            ms.popPose();
-            if (st.getCount()>1) {
-                String text=String.valueOf(st.getCount());
-                ms.pushPose(); ms.translate(s[0]-cam.x,s[1]-cam.y-0.22D,s[2]-cam.z);
-                ms.mulPose(mc.getEntityRenderDispatcher().cameraOrientation()); ms.scale(-0.02F,-0.02F,0.02F);
-                float w=mc.font.width(text);
-                mc.font.drawInBatch(text,-w/2F,0F,0xFFFFFFFF,false,ms.last().pose(),buf,true,0,15728880);
+
+        // --- MODE 1: draw normal ring slots ---
+        if (!HandsState.invMode2) {
+            // draw slot frames
+            for (int i = 0; i < HandSlots.RING_COUNT; i++) {
+                boolean hL = HandsState.ringHover[0]==i, hR = HandsState.ringHover[1]==i;
+                boolean hov = hL || hR;
+                double[] s = ringSlot(p, pt, i);
+                ms.pushPose(); ringTransform(ms, s, cam);
+                drawSlotFrame(ms, buf, (float)PANEL, hov, 1.0F, 1.0F, 1.0F);
                 ms.popPose();
             }
+            // draw items
+            for (int i = 0; i < HandSlots.RING_COUNT; i++) {
+                ItemStack st = HandSlots.getRing(p,i); if(st.isEmpty()) continue;
+                double[] s = ringSlot(p,pt,i);
+                ms.pushPose(); ringTransform(ms,s,cam);
+                ms.scale(0.5F,0.5F,0.5F);
+                mc.getItemRenderer().renderStatic(st, ItemCameraTransforms.TransformType.GROUND,
+                        15728880, OverlayTexture.NO_OVERLAY, ms, buf);
+                if (st.getCount() > 1) {
+                    String text=String.valueOf(st.getCount());
+                    ms.scale(0.5F,0.5F,0.5F);
+                    float w=mc.font.width(text);
+                    mc.font.drawInBatch(text,-w/2F,0F,0xFFFFFF,false,ms.last().pose(),buf,true,0,15728880);
+                }
+                ms.popPose();
+            }
+        } else {
+            // --- MODE 2: armor/craft layout ---
+            drawMode2Ring(mc, ms, buf, cam, p, pt);
         }
-        buf.endBatch();
 
-        // draw switch button — filled square with two-arrow (swap) icon
+        // draw switch button — always visible
+        drawSwitchButton(ms, buf, cam, p, pt);
+    }
+
+    /**
+     * Draw a simple slot frame using RenderType.lines().
+     * r/g/b = color of the border (0..1). alpha = opacity.
+     */
+    private static void drawSlotFrame(MatrixStack ms, IRenderTypeBuffer buf, float half,
+                                       boolean hovered, float r, float g, float b) {
+        float a = hovered ? 1.0F : 0.75F;
+        IVertexBuilder lines = buf.getBuffer(RenderType.lines());
+        Matrix4f mat = ms.last().pose();
+        net.minecraft.util.math.vector.Matrix3f norm = ms.last().normal();
+        // 4 corners of the square frame
+        addLine(lines, mat, norm, -half, -half, 0,  half, -half, 0, r, g, b, a);
+        addLine(lines, mat, norm,  half, -half, 0,  half,  half, 0, r, g, b, a);
+        addLine(lines, mat, norm,  half,  half, 0, -half,  half, 0, r, g, b, a);
+        addLine(lines, mat, norm, -half,  half, 0, -half, -half, 0, r, g, b, a);
+    }
+
+    /**
+     * Draw silhouette icon inside a slot using lines.
+     * iconType: 0=helmet, 1=chestplate, 2=leggings, 3=boots,
+     *           4=torch/lamp, 5=spawn_egg, 6=book,
+     *           7=chest(output), 8=lock
+     */
+    private static void drawSlotIcon(MatrixStack ms, IRenderTypeBuffer buf, float half, int iconType) {
+        IVertexBuilder lines = buf.getBuffer(RenderType.lines());
+        Matrix4f mat = ms.last().pose();
+        net.minecraft.util.math.vector.Matrix3f norm = ms.last().normal();
+        float s = half * 0.65F;
+        float r = 0.8F, g = 0.8F, b = 0.8F, a = 0.9F;
+        switch (iconType) {
+            case 0: // helmet - dome shape
+                addLine(lines,mat,norm, -s*0.6F, -s*0.5F, 0, -s*0.9F,  s*0.1F, 0, r,g,b,a);
+                addLine(lines,mat,norm, -s*0.9F,  s*0.1F, 0, -s*0.6F,  s*0.5F, 0, r,g,b,a);
+                addLine(lines,mat,norm, -s*0.6F,  s*0.5F, 0,  s*0.6F,  s*0.5F, 0, r,g,b,a);
+                addLine(lines,mat,norm,  s*0.6F,  s*0.5F, 0,  s*0.9F,  s*0.1F, 0, r,g,b,a);
+                addLine(lines,mat,norm,  s*0.9F,  s*0.1F, 0,  s*0.6F, -s*0.5F, 0, r,g,b,a);
+                addLine(lines,mat,norm, -s*0.6F, -s*0.5F, 0,  s*0.6F, -s*0.5F, 0, r,g,b,a);
+                // visor
+                addLine(lines,mat,norm, -s*0.3F,  s*0.1F, 0,  s*0.3F,  s*0.1F, 0, r,g,b,a);
+                break;
+            case 1: // chestplate
+                addLine(lines,mat,norm, -s*0.9F, -s*0.8F, 0, -s*0.9F,  s*0.8F, 0, r,g,b,a);
+                addLine(lines,mat,norm,  s*0.9F, -s*0.8F, 0,  s*0.9F,  s*0.8F, 0, r,g,b,a);
+                addLine(lines,mat,norm, -s*0.9F,  s*0.8F, 0,  s*0.9F,  s*0.8F, 0, r,g,b,a);
+                addLine(lines,mat,norm, -s*0.9F, -s*0.8F, 0, -s*0.4F, -s*1.1F, 0, r,g,b,a);
+                addLine(lines,mat,norm,  s*0.9F, -s*0.8F, 0,  s*0.4F, -s*1.1F, 0, r,g,b,a);
+                addLine(lines,mat,norm, -s*0.4F, -s*1.1F, 0,  s*0.4F, -s*1.1F, 0, r,g,b,a);
+                // collar
+                addLine(lines,mat,norm, -s*0.3F, -s*0.8F, 0,  s*0.3F, -s*0.8F, 0, r,g,b,a);
+                break;
+            case 2: // leggings
+                addLine(lines,mat,norm, -s*0.8F, -s*0.9F, 0, -s*0.8F,  s*0.3F, 0, r,g,b,a);
+                addLine(lines,mat,norm,  s*0.8F, -s*0.9F, 0,  s*0.8F,  s*0.3F, 0, r,g,b,a);
+                addLine(lines,mat,norm, -s*0.8F,  s*0.3F, 0,  s*0.8F,  s*0.3F, 0, r,g,b,a);
+                addLine(lines,mat,norm, -s*0.8F, -s*0.9F, 0,  s*0.8F, -s*0.9F, 0, r,g,b,a);
+                addLine(lines,mat,norm, -s*0.1F, s*0.3F,  0, -s*0.1F,  s*0.9F, 0, r,g,b,a);
+                addLine(lines,mat,norm,  s*0.1F, s*0.3F,  0,  s*0.1F,  s*0.9F, 0, r,g,b,a);
+                break;
+            case 3: // boots
+                addLine(lines,mat,norm, -s*0.5F, -s*0.5F, 0, -s*0.5F,  s*0.5F, 0, r,g,b,a);
+                addLine(lines,mat,norm,  s*0.5F, -s*0.5F, 0,  s*0.5F,  s*0.5F, 0, r,g,b,a);
+                addLine(lines,mat,norm, -s*0.5F,  s*0.5F, 0, -s*0.9F,  s*0.9F, 0, r,g,b,a);
+                addLine(lines,mat,norm,  s*0.5F,  s*0.5F, 0,  s*0.9F,  s*0.9F, 0, r,g,b,a);
+                addLine(lines,mat,norm, -s*0.9F,  s*0.9F, 0,  s*0.9F,  s*0.9F, 0, r,g,b,a);
+                addLine(lines,mat,norm, -s*0.5F, -s*0.5F, 0,  s*0.5F, -s*0.5F, 0, r,g,b,a);
+                break;
+            case 4: // torch/lamp
+                addLine(lines,mat,norm,  0,      -s*0.9F, 0,  0,       s*0.5F, 0, r,g,b,a);
+                addLine(lines,mat,norm, -s*0.2F,  s*0.5F, 0,  s*0.2F,  s*0.5F, 0, r,g,b,a);
+                // flame
+                addLine(lines,mat,norm,  0,       s*0.5F, 0, -s*0.1F,  s*0.9F, 0, 1.0F,0.8F,0.2F,a);
+                addLine(lines,mat,norm,  0,       s*0.5F, 0,  s*0.1F,  s*0.9F, 0, 1.0F,0.8F,0.2F,a);
+                break;
+            case 5: // spawn egg - oval with dot pattern
+                int segs = 8;
+                float er = s * 0.7F, ey = s * 0.85F;
+                for (int i = 0; i < segs; i++) {
+                    double a1 = Math.toRadians(i * 360.0 / segs);
+                    double a2 = Math.toRadians((i+1) * 360.0 / segs);
+                    addLine(lines,mat,norm,
+                            (float)(Math.cos(a1)*er), (float)(Math.sin(a1)*ey), 0,
+                            (float)(Math.cos(a2)*er), (float)(Math.sin(a2)*ey), 0, r,g,b,a);
+                }
+                // dots
+                addLine(lines,mat,norm, -s*0.2F, -s*0.2F, 0, -s*0.1F, -s*0.1F, 0, r,g,b,a);
+                addLine(lines,mat,norm,  s*0.2F,  s*0.2F, 0,  s*0.1F,  s*0.1F, 0, r,g,b,a);
+                addLine(lines,mat,norm,  s*0.3F, -s*0.1F, 0,  s*0.2F,  0,      0, r,g,b,a);
+                break;
+            case 6: // book
+                addLine(lines,mat,norm, -s*0.7F, -s*0.9F, 0, -s*0.7F,  s*0.9F, 0, r,g,b,a);
+                addLine(lines,mat,norm,  s*0.7F, -s*0.9F, 0,  s*0.7F,  s*0.9F, 0, r,g,b,a);
+                addLine(lines,mat,norm, -s*0.7F, -s*0.9F, 0,  s*0.7F, -s*0.9F, 0, r,g,b,a);
+                addLine(lines,mat,norm, -s*0.7F,  s*0.9F, 0,  s*0.7F,  s*0.9F, 0, r,g,b,a);
+                addLine(lines,mat,norm,  0,      -s*0.9F, 0,  0,        s*0.9F, 0, r,g,b,a);
+                // lines on pages
+                addLine(lines,mat,norm, -s*0.5F, -s*0.3F, 0, -s*0.1F, -s*0.3F, 0, r,g,b,a);
+                addLine(lines,mat,norm, -s*0.5F,  0,      0, -s*0.1F,  0,      0, r,g,b,a);
+                addLine(lines,mat,norm, -s*0.5F,  s*0.3F, 0, -s*0.1F,  s*0.3F, 0, r,g,b,a);
+                break;
+            case 7: // chest (output slot)
+                addLine(lines,mat,norm, -s*0.9F, -s*0.5F, 0,  s*0.9F, -s*0.5F, 0, 0.7F,0.5F,0.3F,a);
+                addLine(lines,mat,norm,  s*0.9F, -s*0.5F, 0,  s*0.9F,  s*0.7F, 0, 0.7F,0.5F,0.3F,a);
+                addLine(lines,mat,norm,  s*0.9F,  s*0.7F, 0, -s*0.9F,  s*0.7F, 0, 0.7F,0.5F,0.3F,a);
+                addLine(lines,mat,norm, -s*0.9F,  s*0.7F, 0, -s*0.9F, -s*0.5F, 0, 0.7F,0.5F,0.3F,a);
+                // lid
+                addLine(lines,mat,norm, -s*0.9F, -s*0.5F, 0, -s*0.9F, -s*0.9F, 0, 0.7F,0.5F,0.3F,a);
+                addLine(lines,mat,norm,  s*0.9F, -s*0.5F, 0,  s*0.9F, -s*0.9F, 0, 0.7F,0.5F,0.3F,a);
+                addLine(lines,mat,norm, -s*0.9F, -s*0.9F, 0,  s*0.9F, -s*0.9F, 0, 0.7F,0.5F,0.3F,a);
+                // clasp
+                addLine(lines,mat,norm, -s*0.15F,-s*0.5F, 0,  s*0.15F,-s*0.5F, 0, 0.9F,0.7F,0.3F,a);
+                break;
+            case 8: // lock (blocked slot)
+                addLine(lines,mat,norm, -s*0.3F,  0,      0, -s*0.3F,  s*0.5F, 0, 0.5F,0.5F,0.5F,a);
+                addLine(lines,mat,norm,  s*0.3F,  0,      0,  s*0.3F,  s*0.5F, 0, 0.5F,0.5F,0.5F,a);
+                addLine(lines,mat,norm, -s*0.3F,  s*0.5F, 0,  s*0.3F,  s*0.5F, 0, 0.5F,0.5F,0.5F,a);
+                addLine(lines,mat,norm, -s*0.5F, -s*0.6F, 0, -s*0.5F,  0,      0, 0.5F,0.5F,0.5F,a);
+                addLine(lines,mat,norm,  s*0.5F, -s*0.6F, 0,  s*0.5F,  0,      0, 0.5F,0.5F,0.5F,a);
+                addLine(lines,mat,norm, -s*0.5F, -s*0.6F, 0,  s*0.5F, -s*0.6F, 0, 0.5F,0.5F,0.5F,a);
+                addLine(lines,mat,norm, -s*0.5F,  0,      0,  s*0.5F,  0,      0, 0.5F,0.5F,0.5F,a);
+                // keyhole
+                addLine(lines,mat,norm, -s*0.1F, -s*0.2F, 0,  s*0.1F, -s*0.2F, 0, 0.5F,0.5F,0.5F,a);
+                addLine(lines,mat,norm, -s*0.1F, -s*0.2F, 0, -s*0.1F, -s*0.5F, 0, 0.5F,0.5F,0.5F,a);
+                addLine(lines,mat,norm,  s*0.1F, -s*0.2F, 0,  s*0.1F, -s*0.5F, 0, 0.5F,0.5F,0.5F,a);
+                addLine(lines,mat,norm, -s*0.1F, -s*0.5F, 0,  s*0.1F, -s*0.5F, 0, 0.5F,0.5F,0.5F,a);
+                break;
+        }
+    }
+
+    private static void drawMode2Ring(Minecraft mc, MatrixStack ms, IRenderTypeBuffer.Impl buf,
+                                       Vector3d cam, ClientPlayerEntity p, float pt) {
+        // Slot assignments for mode 2 (by ring slot index 0-23):
+        // Slot layout same positions as mode1, but different content:
+        //   0=front-top  -> chestplate
+        //   1=front-top-right -> helmet
+        //   2=right      -> arrows (lock for now)
+        //   3=front-bot-right -> boots
+        //   4=front-bot  -> lock
+        //   5=front-bot-left -> lamp
+        //   6=left       -> leggings
+        //   7=front-top-left -> lock
+        //   8-11 = upper tier -> lock
+        //   12-15 = lower tier -> lock
+        //   16-19 = lower diagonal -> lock
+        //   20-23 = upper diagonal -> lock
+        // Behind (slots 2,3,6,7 when looking back):
+        //   craft slots = indices 8,9,10,11 (upper tier, 4 slots)
+        //   output slot = index 12
+        //   book        = index 13
+
+        // Map slot index to iconType: -1 = normal frame (craft), -2 = craft slot (darker), iconType >= 0 = silhouette
+        int[] iconMap = new int[HandSlots.RING_COUNT];
+        for (int i = 0; i < HandSlots.RING_COUNT; i++) iconMap[i] = 8; // default: lock
+        iconMap[0] = 1;  // front-top: chestplate
+        iconMap[1] = 0;  // front-top-right: helmet
+        iconMap[6] = 2;  // left: leggings
+        iconMap[3] = 3;  // front-bot-right: boots
+        iconMap[5] = 4;  // front-bot-left: lamp
+        iconMap[2] = 5;  // right: spawn egg (pet)
+        iconMap[7] = 6;  // front-top-left: book (recipe)
+        // craft slots (behind player): 8,9,10,11
+        iconMap[8] = -2; iconMap[9] = -2; iconMap[10] = -2; iconMap[11] = -2;
+        // output slot
+        iconMap[12] = 7; // chest icon, brown frame
+        // the rest stay as lock (8)
+
+        for (int i = 0; i < HandSlots.RING_COUNT; i++) {
+            double[] s = ringSlot(p, pt, i);
+            ms.pushPose();
+            ringTransform(ms, s, cam);
+            int icon = iconMap[i];
+            if (icon == -2) {
+                // craft slot: darker frame
+                drawSlotFrame(ms, buf, (float)PANEL, false, 0.4F, 0.4F, 0.4F);
+            } else if (icon == 7) {
+                // output slot: brownish frame
+                drawSlotFrame(ms, buf, (float)PANEL, false, 0.7F, 0.5F, 0.3F);
+                drawSlotIcon(ms, buf, (float)PANEL, icon);
+            } else {
+                // normal white frame + icon
+                drawSlotFrame(ms, buf, (float)PANEL, false, 1.0F, 1.0F, 1.0F);
+                drawSlotIcon(ms, buf, (float)PANEL, icon);
+            }
+            ms.popPose();
+        }
+    }
+
+    private static void drawSwitchButton(MatrixStack ms, IRenderTypeBuffer.Impl buf, Vector3d cam,
+                                          ClientPlayerEntity p, float pt) {
         double[] sw = switchSlot(p, pt);
         ms.pushPose();
         ringTransform(ms, sw, cam);
+
         boolean swHover = HandsState.ringHover[0] == RING_SWITCH || HandsState.ringHover[1] == RING_SWITCH;
         float alpha = swHover ? 1.0F : 0.82F;
         // color: blue = mode1, red = mode2
-        float br = HandsState.invMode2 ? 0.8F : 0.1F;
-        float bg = 0.1F;
-        float bb = HandsState.invMode2 ? 0.1F : 0.8F;
+        float cr = HandsState.invMode2 ? 0.8F : 0.1F;
+        float cg = 0.1F;
+        float cb = HandsState.invMode2 ? 0.1F : 0.8F;
 
-        // flush then draw filled quad via GL11
-        buf.endBatch();
-        RenderSystem.disableTexture();
-        RenderSystem.enableBlend();
-        RenderSystem.defaultBlendFunc();
-        Matrix4f mat = ms.last().pose();
-        org.lwjgl.system.MemoryStack stk = org.lwjgl.system.MemoryStack.stackPush();
-        java.nio.FloatBuffer mb = stk.mallocFloat(16);
-        mat.store(mb);
-        GL11.glBegin(GL11.GL_QUADS);
-        GL11.glColor4f(br, bg, bb, alpha);
         float p2 = (float)PANEL;
-        glVtx(mb, -p2, -p2, 0); glVtx(mb, p2, -p2, 0); glVtx(mb, p2, p2, 0); glVtx(mb, -p2, p2, 0);
-        GL11.glEnd();
-        // draw two-arrow icon (↑ on left, ↓ on right) in white
-        float s = p2 * 0.42F;
-        GL11.glBegin(GL11.GL_LINES);
-        GL11.glColor4f(1F, 1F, 1F, alpha);
-        // left up-arrow shaft
-        GL11.glVertex3f(applyM(mb,-s*0.5F,-s,0,0), applyM(mb,-s*0.5F,-s,0,1), applyM(mb,-s*0.5F,-s,0,2));
-        GL11.glVertex3f(applyM(mb,-s*0.5F, s,0,0), applyM(mb,-s*0.5F, s,0,1), applyM(mb,-s*0.5F, s,0,2));
-        // left up-arrow head left
-        GL11.glVertex3f(applyM(mb,-s*0.5F, s,0,0), applyM(mb,-s*0.5F, s,0,1), applyM(mb,-s*0.5F, s,0,2));
-        GL11.glVertex3f(applyM(mb,-s*0.9F, s*0.5F,0,0), applyM(mb,-s*0.9F, s*0.5F,0,1), applyM(mb,-s*0.9F, s*0.5F,0,2));
-        // left up-arrow head right
-        GL11.glVertex3f(applyM(mb,-s*0.5F, s,0,0), applyM(mb,-s*0.5F, s,0,1), applyM(mb,-s*0.5F, s,0,2));
-        GL11.glVertex3f(applyM(mb,-s*0.1F, s*0.5F,0,0), applyM(mb,-s*0.1F, s*0.5F,0,1), applyM(mb,-s*0.1F, s*0.5F,0,2));
-        // right down-arrow shaft
-        GL11.glVertex3f(applyM(mb, s*0.5F, s,0,0), applyM(mb, s*0.5F, s,0,1), applyM(mb, s*0.5F, s,0,2));
-        GL11.glVertex3f(applyM(mb, s*0.5F,-s,0,0), applyM(mb, s*0.5F,-s,0,1), applyM(mb, s*0.5F,-s,0,2));
-        // right down-arrow head left
-        GL11.glVertex3f(applyM(mb, s*0.5F,-s,0,0), applyM(mb, s*0.5F,-s,0,1), applyM(mb, s*0.5F,-s,0,2));
-        GL11.glVertex3f(applyM(mb, s*0.1F,-s*0.5F,0,0), applyM(mb, s*0.1F,-s*0.5F,0,1), applyM(mb, s*0.1F,-s*0.5F,0,2));
-        // circular refresh icon: two arcs (top-right arc CW, bottom-left arc CW)
-        // top-right arc: from 30° to 330° (missing 30° gap at bottom for arrow)
+        IVertexBuilder lines = buf.getBuffer(RenderType.lines());
+        Matrix4f mat = ms.last().pose();
+        net.minecraft.util.math.vector.Matrix3f norm = ms.last().normal();
+
+        // Outer border (colored)
+        addLine(lines,mat,norm, -p2,-p2,0,  p2,-p2,0, cr,cg,cb,alpha);
+        addLine(lines,mat,norm,  p2,-p2,0,  p2, p2,0, cr,cg,cb,alpha);
+        addLine(lines,mat,norm,  p2, p2,0, -p2, p2,0, cr,cg,cb,alpha);
+        addLine(lines,mat,norm, -p2, p2,0, -p2,-p2,0, cr,cg,cb,alpha);
+
+        // ↻ refresh icon (single arc C-shape with arrowhead)
+        float r = p2 * 0.55F;
         int segs = 10;
-        float r = s * 0.72F;
-        float inner = r * 0.55F;
-        // outer arc top (0 to ~150 deg)
+        // arc from ~30° to ~330° (gap at bottom-right for arrowhead)
         for (int i = 0; i < segs; i++) {
-            double a1 = Math.toRadians(20 + i * 14);
-            double a2 = Math.toRadians(20 + (i+1) * 14);
-            glLine(mb, (float)(Math.cos(a1)*r), (float)(Math.sin(a1)*r),
-                       (float)(Math.cos(a2)*r), (float)(Math.sin(a2)*r));
+            double a1 = Math.toRadians(40 + i * 28);
+            double a2 = Math.toRadians(40 + (i+1) * 28);
+            addLine(lines,mat,norm,
+                    (float)(Math.cos(a1)*r), (float)(Math.sin(a1)*r), 0,
+                    (float)(Math.cos(a2)*r), (float)(Math.sin(a2)*r), 0,
+                    1F,1F,1F,alpha);
         }
-        // outer arc bottom (180 to ~330 deg)
-        for (int i = 0; i < segs; i++) {
-            double a1 = Math.toRadians(200 + i * 14);
-            double a2 = Math.toRadians(200 + (i+1) * 14);
-            glLine(mb, (float)(Math.cos(a1)*r), (float)(Math.sin(a1)*r),
-                       (float)(Math.cos(a2)*r), (float)(Math.sin(a2)*r));
-        }
-        // arrowhead at end of top arc (pointing clockwise ~160deg)
-        float ax = (float)(Math.cos(Math.toRadians(160))*r);
-        float ay = (float)(Math.sin(Math.toRadians(160))*r);
-        glLine(mb, ax, ay, ax + s*0.18F, ay - s*0.22F);
-        glLine(mb, ax, ay, ax + s*0.25F, ay + s*0.08F);
-        // arrowhead at end of bottom arc (~340deg)
-        float bx = (float)(Math.cos(Math.toRadians(340))*r);
-        float by = (float)(Math.sin(Math.toRadians(340))*r);
-        glLine(mb, bx, by, bx - s*0.18F, by + s*0.22F);
-        glLine(mb, bx, by, bx - s*0.25F, by - s*0.08F);
-        GL11.glEnd();
-        stk.pop();
-        RenderSystem.enableTexture();
-        RenderSystem.disableBlend();
+        // arrowhead at end of arc (~320°)
+        float ax = (float)(Math.cos(Math.toRadians(320))*r);
+        float ay = (float)(Math.sin(Math.toRadians(320))*r);
+        addLine(lines,mat,norm, ax,ay,0, ax+p2*0.22F, ay-p2*0.18F,0, 1F,1F,1F,alpha);
+        addLine(lines,mat,norm, ax,ay,0, ax+p2*0.08F, ay+p2*0.25F,0, 1F,1F,1F,alpha);
+
         ms.popPose();
+    }
+
+    private static void addLine(IVertexBuilder b, Matrix4f mat, net.minecraft.util.math.vector.Matrix3f norm,
+                                 float x1, float y1, float z1, float x2, float y2, float z2,
+                                 float r, float g, float bl, float a) {
+        b.vertex(mat,x1,y1,z1).color(r,g,bl,a).normal(norm,0,1,0).endVertex();
+        b.vertex(mat,x2,y2,z2).color(r,g,bl,a).normal(norm,0,1,0).endVertex();
     }
 
     // -------------------------------------------------------- world render
@@ -592,18 +750,6 @@ public class ClientEvents {
         buf.endBatch(RenderType.lines());
     }
 
-    private static void glLine(java.nio.FloatBuffer m, float x1, float y1, float x2, float y2) {
-        GL11.glVertex3f(m.get(0)*x1+m.get(4)*y1+m.get(12), m.get(1)*x1+m.get(5)*y1+m.get(13), m.get(2)*x1+m.get(6)*y1+m.get(14));
-        GL11.glVertex3f(m.get(0)*x2+m.get(4)*y2+m.get(12), m.get(1)*x2+m.get(5)*y2+m.get(13), m.get(2)*x2+m.get(6)*y2+m.get(14));
-    }
-    private static void glVtx(java.nio.FloatBuffer m, float x, float y, float z) {
-        GL11.glVertex3f(m.get(0)*x+m.get(4)*y+m.get(8)*z+m.get(12),
-                        m.get(1)*x+m.get(5)*y+m.get(9)*z+m.get(13),
-                        m.get(2)*x+m.get(6)*y+m.get(10)*z+m.get(14));
-    }
-    private static float applyM(java.nio.FloatBuffer m, float x, float y, float z, int row) {
-        return m.get(row)*x + m.get(row+4)*y + m.get(row+8)*z + m.get(row+12);
-    }
     private static void addArmLine(IVertexBuilder b, Matrix4f mat,
             net.minecraft.util.math.vector.Matrix3f norm,
             double x1, double y1, double z1, double x2, double y2, double z2) {
@@ -624,10 +770,7 @@ public class ClientEvents {
         }
         if (!any) return;
 
-        // flush existing batches then switch to no-depth lines
         buf.endBatch();
-
-        // disable depth test so markers show through blocks
         RenderSystem.disableDepthTest();
 
         IVertexBuilder lines = buf.getBuffer(RenderType.lines());
@@ -661,7 +804,6 @@ public class ClientEvents {
 
         for (int h = 0; h < 2; h++) {
             if (HandsState.gripPoint[h] == null) continue;
-            // hide the vanilla arm — our beige lines already show the grip arm
             if (h == 0) {
                 pm.leftArm.visible = false;
                 pm.leftSleeve.visible = false;
@@ -738,9 +880,7 @@ public class ClientEvents {
         int w = mc.getWindow().getGuiScaledWidth();
         int hgt = mc.getWindow().getGuiScaledHeight();
 
-        // top left: grip icons + lock icon
         int iconX = 6;
-        // grip hand icons
         for (int h = 0; h < 2; h++) {
             if (HandsState.grip[h] == null) continue;
             int color = h==0?0xFF4080FF:0xFFFF4040;
@@ -753,7 +893,6 @@ public class ClientEvents {
             AbstractGui.fill(ms,x+8,y,x+10,y+7,color);
             AbstractGui.fill(ms,x+11,y+1,x+13,y+7,color);
         }
-        // lock icon: drawn at x=4, top left corner
         drawLockIcon(ms, 4, 6, HandsState.locked);
 
         drawHeld(mc, ms, HandSlots.get(mc.player,0), w/2-118, hgt-19, false);
@@ -761,21 +900,17 @@ public class ClientEvents {
         drawHints(mc, ms, hgt);
     }
 
-    /** Lock icon: a padlock shape, gold=locked grey=unlocked. No text. */
     private static void drawLockIcon(MatrixStack ms, int x, int y, boolean locked) {
         int body  = locked ? 0xFFE0B030 : 0xFF909090;
         int shackle = 0xFFCCCCCC;
-        // shackle (arch above the body)
         if (locked) {
             AbstractGui.fill(ms,x+2,y,  x+10,y+2, shackle);
             AbstractGui.fill(ms,x+2,y,  x+4, y+6, shackle);
             AbstractGui.fill(ms,x+8,y,  x+10,y+6, shackle);
         } else {
-            // open: shackle swung to the right
             AbstractGui.fill(ms,x+4,y-2,x+12,y,  shackle);
             AbstractGui.fill(ms,x+10,y-2,x+12,y+5,shackle);
         }
-        // body of the lock
         AbstractGui.fill(ms,x,  y+5, x+12, y+13, body);
     }
 

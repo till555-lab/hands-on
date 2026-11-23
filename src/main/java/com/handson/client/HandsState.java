@@ -21,7 +21,7 @@ public class HandsState {
     public static final boolean[] consumed = new boolean[2];
 
     public static boolean invOpen = false;
-    /** true = second ring mode (blocked slots, future: armor/craft) */
+    /** true = second ring mode (armor/craft slots) */
     public static boolean invMode2 = false;
     public static float anchorYaw = 0.0F;
     public static final int[] ringHover = {-1, -1};
