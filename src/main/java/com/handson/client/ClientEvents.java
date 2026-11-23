@@ -39,7 +39,10 @@ import net.minecraft.util.math.vector.Matrix4f;
 import net.minecraft.util.math.vector.Vector3d;
 import net.minecraft.util.math.vector.Vector3f;
 import net.minecraft.util.text.TranslationTextComponent;
+import net.minecraft.client.gui.screen.inventory.CreativeScreen;
+import net.minecraft.item.ItemGroup;
 import net.minecraftforge.client.event.GuiContainerEvent;
+import net.minecraftforge.client.event.GuiScreenEvent;
 import net.minecraftforge.client.event.InputEvent;
 import net.minecraftforge.client.event.RenderGameOverlayEvent;
 import net.minecraftforge.client.event.RenderHandEvent;
@@ -845,6 +848,32 @@ public class ClientEvents {
                 AbstractGui.fill(ms,x,y,x+16,y+16,0xFF8B8B8B);
             }
         }
+    }
+
+    /**
+     * In creative mode, hide the player's own inventory tab contents
+     * so ring items don't appear in the 9 vanilla slots shown there.
+     */
+    @SubscribeEvent
+    public void onCreativeBackground(GuiContainerEvent.DrawBackground event) {
+        if (!(event.getGuiContainer() instanceof CreativeScreen)) return;
+        CreativeScreen cs = (CreativeScreen) event.getGuiContainer();
+        // Only affect the inventory tab (tab index = ItemGroup.TAB_INVENTORY.getId())
+        try {
+            java.lang.reflect.Field f = CreativeScreen.class.getDeclaredField("selectedTab");
+            f.setAccessible(true);
+            int tab = f.getInt(cs);
+            if (tab != ItemGroup.TAB_INVENTORY.getId()) return;
+        } catch (Exception e) {
+            return;
+        }
+        // Fill over the 9 hotbar slots area with the background color to hide ring items shown there
+        MatrixStack ms = event.getMatrixStack();
+        int x = cs.getGuiLeft();
+        int y = cs.getGuiTop();
+        // The vanilla creative inventory tab shows player inventory at y+112 area
+        // Cover it with a dark fill so ring items are invisible
+        AbstractGui.fill(ms, x + 9, y + 112, x + 9 + 9 * 18, y + 112 + 18, 0xFF8B8B8B);
     }
 
     // ------------------------------------------ vanilla HUD shifts
